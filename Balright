@@ -52,22 +52,57 @@ local HAS_DRAWING = pcall(function()
 end)
 
 local S = {
-    Enabled = true, Prediction = 0.13, JumpOffset = 0,
-    Camlock = false, CamSmooth = 0.15, CamPred = 0.13, CamJump = 0,
-    AutoSelect = false,
-    Strafe = false, StrafeDist = 5, StrafeSpeed = 6, StrafeHeight = 2,
-    ViewTarget = false, AutoAir = false, AutoAirDelay = 0.1,
-    Silent = false, SilentBone = "Head",
+    Enabled = true,
+    JumpOffset = 0,
+
+    -- CAMS / LOCK
+    Camlock = false,
+    CamSmooth = 0.927,
+    CamPred = 0.273,
+    CamJump = 0,
+    LockMethod = "Mouse",     -- Mouse | Camera
+    AimPart = "UpperTorso",
+    AutoPrediction = false,
+    AntiGround = false,
+
+    -- SILENT
+    Silent = false,
+    SilentPred = 0.1355,
+    Hitchance = 100,
+    AirHitchance = 100,
+    SilentAutoPred = true,
+    SilentAntiGround = true,
+    SilentAimPart = "HumanoidRootPart",
+    SilentBone = "Head",
+
+    -- AUTO AIR
+    AutoAir = false,
+    AutoAirPart = "LowerTorso",
+    AutoAirPred = 0.1,
+    AutoAirSmooth = 0.1,
+
+    -- 360
+    Rotate360 = false,
+    Rotate360Speed = 10000,
+
+    -- PREDICTION VALUES (from trust)
+    Prediction = 0.273,
+    PredictionX = 0.1,
+    PredictionY = 0.1,
+
+    -- VISUAL
     VisualEnabled = true,
     HitSoundEnabled = true, SelectedHitSound = "Skeet",
     HitEffectEnabled = true, SelectedHitEffect = "Crescent Slash",
     TargetStatsEnabled = true,
-    TargetAimBone = "Head",
-    PingAim = false, PingRef = 50, PingMult = 0.002,
-    DistanceAim = false, DistNear = 50, DistFar = 300,
-    DistNearMult = 0.5, DistFarMult = 2.0,
+
+    -- RAGEBOT
     HitboxEnabled = false, HitboxSize = 10, HitboxTransparency = 0.7,
     BulletTPEnabled = false, BulletTPDistance = 15,
+    Strafe = false, StrafeDist = 5, StrafeSpeed = 6, StrafeHeight = 2,
+    ViewTarget = false,
+
+    -- MISC
     AutoFood = false, SelectedFood = "[Chicken]",
     AutoArmor = false, SelectedArmor = "[Medium Armor]",
     MacroEnabled = false, MacroMode = "Legit",
@@ -97,10 +132,46 @@ local function inew(class, props)
     return o
 end
 
-local function GetTargetPart(plr)
+-- PING-BASED PREDICTION (from trust.lua)
+local function GetPingPrediction()
+    local ping = 0
+    pcall(function()
+        local pingstr = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValueString()
+        local split = string.split(pingstr, "(")
+        ping = tonumber(split[1]) or 0
+    end)
+    if ping < 20 then return 0.11
+    elseif ping < 30 then return 0.12
+    elseif ping < 40 then return 0.126
+    elseif ping < 50 then return 0.12846
+    elseif ping < 60 then return 0.1343
+    elseif ping < 70 then return 0.136354
+    elseif ping < 80 then return 0.14211
+    elseif ping < 90 then return 0.146373
+    elseif ping < 105 then return 0.149533
+    elseif ping < 120 then return 0.155
+    elseif ping < 140 then return 0.165
+    elseif ping < 160 then return 0.17
+    elseif ping < 170 then return 0.174
+    elseif ping < 180 then return 0.177
+    elseif ping < 190 then return 0.18474
+    elseif ping < 205 then return 0.209
+    elseif ping < 215 then return 0.24
+    elseif ping < 225 then return 1.4
+    else return 0.273 end
+end
+
+local function GetPredictionValue()
+    if S.AutoPrediction then
+        return GetPingPrediction()
+    end
+    return S.CamPred
+end
+
+local function GetTargetPartByAim(plr, aimPartName)
     if not plr or not plr.Character then return nil end
     local char = plr.Character
-    if S.TargetAimBone == "Closest Part" then
+    if aimPartName == "Closest Part" then
         local cam = Workspace.CurrentCamera
         if not cam then return char:FindFirstChild("HumanoidRootPart") end
         local center = cam.ViewportSize / 2
@@ -116,30 +187,31 @@ local function GetTargetPart(plr)
         end
         return bestPart or char:FindFirstChild("HumanoidRootPart")
     end
-    return char:FindFirstChild(S.TargetAimBone) or char:FindFirstChild("HumanoidRootPart")
+    return char:FindFirstChild(aimPartName) or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetTargetPart(plr)
+    return GetTargetPartByAim(plr, S.AimPart)
+end
+
+local function GetSilentPart(plr)
+    return GetTargetPartByAim(plr, S.SilentAimPart)
 end
 
 local function GetDynamicPrediction(targetPart)
-    local pred = S.Prediction
-    if S.PingAim then
-        local ping = 0
-        pcall(function()
-            ping = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue() or 0
-        end)
-        pred = pred + ((ping - S.PingRef) / 1000) * S.PingMult
-    end
-    if S.DistanceAim and targetPart then
+    local pred = GetPredictionValue()
+    if S.Strafe and targetPart then
         local myChar = LP.Character
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if myHRP then
             local dist = (myHRP.Position - targetPart.Position).Magnitude
-            local a = math.clamp((dist - S.DistNear) / math.max(S.DistFar - S.DistNear, 1), 0, 1)
-            pred = pred * (S.DistNearMult + (S.DistFarMult - S.DistNearMult) * a)
+            pred = pred * (1 + dist / 1000)
         end
     end
-    return math.clamp(pred, 0, 1)
+    return math.clamp(pred, 0, 2)
 end
 
+-- HITSOUNDS
 local Hitsounds = {
     Bameware = "rbxassetid://3124331820",
     Bell = "rbxassetid://6534947240",
@@ -801,24 +873,13 @@ if HAS_DRAWING then
     end)
 end
 
-local StatsGui = inew("ScreenGui", {
-    Name = "CrispyStats",
-    Parent = CoreGui,
-    ResetOnSpawn = false,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-})
-
+-- TARGET STATS
+local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling })
 local StatsFrame = inew("Frame", {
-    Parent = StatsGui,
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.new(0.5, 0, 0.05, 0),
-    Size = UDim2.new(0, 320, 0, 0),
-    AutomaticSize = Enum.AutomaticSize.Y,
-    BackgroundColor3 = Library.Theme.Background,
-    BorderSizePixel = 0,
-    Visible = false,
+    Parent = StatsGui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.05, 0),
+    Size = UDim2.new(0, 320, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundColor3 = Library.Theme.Background, BorderSizePixel = 0, Visible = false,
 })
-
 inew("UIStroke", { Parent = StatsFrame, Color = Library.Theme.Accent, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
 inew("UICorner", { Parent = StatsFrame, CornerRadius = UDim.new(0, 6) })
 inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Library.Theme.Accent, BorderSizePixel = 0 })
@@ -826,71 +887,16 @@ inew("UIPadding", { Parent = StatsFrame, PaddingTop = UDim.new(0, 10), PaddingBo
 inew("UIListLayout", { Parent = StatsFrame, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
 
 local StatsHeader = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, LayoutOrder = 1 })
-
-local StatsAvatar = inew("ImageLabel", {
-    Parent = StatsHeader,
-    Size = UDim2.new(0, 32, 0, 32),
-    BackgroundColor3 = Library.Theme.Element,
-    BorderSizePixel = 0,
-    Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-})
+local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = Library.Theme.Element, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
 inew("UICorner", { Parent = StatsAvatar, CornerRadius = UDim.new(0, 4) })
 inew("UIStroke", { Parent = StatsAvatar, Color = Library.Theme.Outline, Thickness = 1 })
-
-local StatsName = inew("TextLabel", {
-    Parent = StatsHeader,
-    Position = UDim2.new(0, 40, 0, 0),
-    Size = UDim2.new(1, -40, 0, 16),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.GothamMedium,
-    Text = "—",
-    TextColor3 = Library.Theme.Text,
-    TextSize = 13,
-    TextXAlignment = Enum.TextXAlignment.Left,
-})
-
-local StatsSub = inew("TextLabel", {
-    Parent = StatsHeader,
-    Position = UDim2.new(0, 40, 0, 16),
-    Size = UDim2.new(1, -40, 0, 14),
-    BackgroundTransparency = 1,
-    Font = Enum.Font.Gotham,
-    Text = "—",
-    TextColor3 = Color3.fromRGB(150, 150, 150),
-    TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left,
-})
+local StatsName = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 40, 0, 0), Size = UDim2.new(1, -40, 0, 16), BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, Text = "—", TextColor3 = Library.Theme.Text, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left })
+local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 40, 0, 16), Size = UDim2.new(1, -40, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Gotham, Text = "—", TextColor3 = Color3.fromRGB(150, 150, 150), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
 
 local function MakeStatRow(order, label_text)
-    local row = inew("Frame", {
-        Parent = StatsFrame,
-        Size = UDim2.new(1, 0, 0, 14),
-        BackgroundTransparency = 1,
-        LayoutOrder = order,
-    })
-
-    inew("TextLabel", {
-        Parent = row,
-        Size = UDim2.new(0.5, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.Gotham,
-        Text = label_text,
-        TextColor3 = Color3.fromRGB(160, 160, 160),
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    })
-
-    return inew("TextLabel", {
-        Parent = row,
-        Position = UDim2.new(0.5, 0, 0, 0),
-        Size = UDim2.new(0.5, 0, 1, 0),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamMedium,
-        Text = "—",
-        TextColor3 = Library.Theme.Text,
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Right,
-    })
+    local row = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, LayoutOrder = order })
+    inew("TextLabel", { Parent = row, Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = Enum.Font.Gotham, Text = label_text, TextColor3 = Color3.fromRGB(160, 160, 160), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
+    return inew("TextLabel", { Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, Text = "—", TextColor3 = Library.Theme.Text, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right })
 end
 
 local RowHealth = MakeStatRow(2, "Health")
@@ -906,43 +912,34 @@ RunService.Heartbeat:Connect(function()
         local hum = tp.Character:FindFirstChildOfClass("Humanoid")
         local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
         if not hum or not hrp then StatsFrame.Visible = false return end
-
         StatsFrame.Visible = true
         StatsAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tp.UserId .. "&w=150&h=150"
         StatsName.Text = hum.DisplayName or tp.Name
         StatsSub.Text = "@" .. tp.Name
-
         RowHealth.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
         RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3 and Color3.fromRGB(255, 80, 80) or Library.Theme.Text
-
         local be = tp.Character:FindFirstChild("BodyEffects")
         local av = be and be:FindFirstChild("Armor")
         local armor = av and math.floor(av.Value) or 0
         RowArmor.Text = tostring(armor)
         RowArmor.TextColor3 = armor > 0 and Color3.fromRGB(100, 180, 255) or Library.Theme.Text
-
         local myChar = LP.Character
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         RowDist.Text = (myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0) .. " studs"
-
         local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
         if myHum then
-            if myHum.Health > hum.Health then
-                RowStatus.Text = "Winning"; RowStatus.TextColor3 = Color3.fromRGB(80, 220, 100)
-            elseif myHum.Health < hum.Health then
-                RowStatus.Text = "Losing"; RowStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
-            else
-                RowStatus.Text = "Even"; RowStatus.TextColor3 = Color3.fromRGB(255, 210, 80)
-            end
+            if myHum.Health > hum.Health then RowStatus.Text = "Winning"; RowStatus.TextColor3 = Color3.fromRGB(80, 220, 100)
+            elseif myHum.Health < hum.Health then RowStatus.Text = "Losing"; RowStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
+            else RowStatus.Text = "Even"; RowStatus.TextColor3 = Color3.fromRGB(255, 210, 80) end
         end
     end)
 end)
 
+-- CAMLOCK
 local DEFAULT_CAMERA_TYPE = Camera.CameraType
 
 local function applyLock()
     if Target.Player then return end
-
     local closest, best = nil, math.huge
     local center = Camera.ViewportSize / 2
 
@@ -990,24 +987,85 @@ local function toggleLock()
     end)
 end
 
+-- AUTO AIR HELPER: pick aim part based on target state (from trust.lua)
+local function GetAutoAirPart(targetChar)
+    if not targetChar then return "LowerTorso" end
+    local hum = targetChar:FindFirstChildOfClass("Humanoid")
+    if not hum then return S.AutoAirPart end
+    local state = hum:GetState()
+    if state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping then
+        return "RightFoot"
+    end
+    return S.AutoAirPart
+end
+
+-- CAMS LOCK BINDING
 RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 1, function(dt)
     pcall(function()
         local target = CamlockTarget
-        if S.Camlock and target and target.Parent then
+        if S.Camlock and target and target.Parent and Target.Player and Target.Player.Character then
+
+            -- pick aim part
+            local aimPartName = S.AimPart
+            if S.AutoAir and Target.Player.Character then
+                aimPartName = GetAutoAirPart(Target.Player.Character)
+            end
+
+            local part = Target.Player.Character:FindFirstChild(aimPartName)
+            if not part then part = target end
+
+            -- get prediction value (auto-ping or manual)
+            local pred = GetPredictionValue()
+
+            -- apply anti-ground if enabled
+            local predictedPos
+            if S.AntiGround then
+                local vel = part.Velocity
+                local grounded = false
+                pcall(function()
+                    if LP.Character and LP.Character:FindFirstChildOfClass("Humanoid") then
+                        grounded = LP.Character.Humanoid.FloorMaterial ~= Enum.Material.Air
+                    end
+                end)
+                if grounded then
+                    predictedPos = part.Position + Vector3.new(vel.X * pred, math.max(vel.Y * pred, 0), vel.Z * pred)
+                else
+                    predictedPos = part.Position + vel * pred
+                end
+            else
+                predictedPos = part.Position + part.Velocity * pred
+            end
+
             if Camera.CameraType ~= Enum.CameraType.Scriptable then
                 Camera.CameraType = Enum.CameraType.Scriptable
             end
-            local pred = target.Position
-                + target.Velocity * S.CamPred
-                + Vector3.new(0, S.CamJump, 0)
-            local alpha = 1 - math.exp(-dt / math.max(S.CamSmooth, 0.001))
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), alpha)
+
+            -- mouse vs camera lock method
+            if S.LockMethod == "Mouse" then
+                local mousePos = UIS:GetMouseLocation()
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+                local alpha = math.clamp(1 - S.CamSmooth, 0.01, 1)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, alpha)
+            else
+                local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+                Camera.CFrame = targetCFrame
+            end
         elseif not S.Camlock and Camera.CameraType == Enum.CameraType.Scriptable then
             Camera.CameraType = DEFAULT_CAMERA_TYPE
         end
     end)
 end)
 
+-- 360 ROTATION
+local Rotate360Angle = 0
+RunService.RenderStepped:Connect(function(dt)
+    if not S.Rotate360 then return end
+    Rotate360Angle = Rotate360Angle + S.Rotate360Speed * dt
+    if Rotate360Angle >= 360 then Rotate360Angle = Rotate360Angle - 360 end
+    Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
+end)
+
+-- HOOKS
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
     if checkcaller() then return oldnc(self_, ...) end
@@ -1049,7 +1107,7 @@ oldidx = hookmetamethod(game, "__index", newcclosure(function(self_, key)
 
     if S.Enabled and S.Silent and self_ == Mouse and activeHRP and activeHRP.Parent and Target.Player and Target.Player.Character then
         if key == "Hit" then
-            local part = GetTargetPart(Target.Player) or activeHRP
+            local part = GetSilentPart(Target.Player) or activeHRP
             return CFrame.new(
                 part.Position
                 + part.Velocity * GetDynamicPrediction(part)
@@ -1063,6 +1121,7 @@ oldidx = hookmetamethod(game, "__index", newcclosure(function(self_, key)
     return oldidx(self_, key)
 end))
 
+-- TOOL TRACKING
 local function TrackTool(char)
     char.ChildAdded:Connect(function(c)
         if c:IsA("Tool") then CurrentTool = c.Name end
@@ -1075,11 +1134,7 @@ end
 if LP.Character then TrackTool(LP.Character) end
 LP.CharacterAdded:Connect(TrackTool)
 
-local Window = Library:CreateWindow({
-    Title = "crispy.lol",
-    Center = true,
-    AutoShow = true,
-})
+local Window = Library:CreateWindow({ Title = "crispy.lol", Center = true, AutoShow = true })
 
 local Tabs = {
     Legitbot = Window:AddTab("Legitbot"),
@@ -1098,19 +1153,17 @@ CombatBox:AddToggle("EnableCrispy", {
     Default = true,
     Callback = function(v)
         S.Enabled = v
-        if not v then
-            Target.Player = nil
-            pcall(releaseLock)
-        end
+        if not v then Target.Player = nil; pcall(releaseLock) end
     end,
 })
 
-CombatBox:AddInput("PredInput", { Default = "0.13", Numeric = true, Text = "Prediction", Callback = function(v) S.Prediction = tonumber(v) or 0.13 end })
+CombatBox:AddDropdown("AimPartDropdown", { Text = "Aim Part", Values = HitParts, Default = "UpperTorso", Callback = function(v) S.AimPart = v end })
+CombatBox:AddDropdown("SilentAimPartDropdown", { Text = "Silent Aim Part", Values = HitParts, Default = "HumanoidRootPart", Callback = function(v) S.SilentAimPart = v end })
 CombatBox:AddSlider("JumpOffset", { Text = "Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.JumpOffset = v end })
 CombatBox:AddToggle("AutoSelect", { Text = "Auto Select", Default = false, Callback = function(v) S.AutoSelect = v end })
 CombatBox:AddToggle("SilentToggle", { Text = "Silent Aim", Default = false, Callback = function(v) S.Silent = v end })
-CombatBox:AddDropdown("HitPartDropdown", { Text = "Hit Part", Values = HitParts, Default = "Head", Callback = function(v) S.TargetAimBone = v end })
-CombatBox:AddDropdown("SilentBone", { Text = "Silent Bone", Values = HitParts, Default = "Head", Callback = function(v) S.SilentBone = v end })
+CombatBox:AddSlider("Hitchance", { Text = "Hitchance", Default = 100, Min = 1, Max = 100, Rounding = 0, Suffix = "%", Callback = function(v) S.Hitchance = v end })
+CombatBox:AddSlider("AirHitchance", { Text = "Air Hitchance", Default = 100, Min = 1, Max = 100, Rounding = 0, Suffix = "%", Callback = function(v) S.AirHitchance = v end })
 
 local CamBox = Tabs.Legitbot:AddRightGroupbox("Camlock")
 
@@ -1119,66 +1172,50 @@ CamBox:AddToggle("CamlockToggle", {
     Default = false,
     Callback = function(v)
         S.Camlock = v
-        if not v then
-            CamlockTarget = nil
-            Camera.CameraType = DEFAULT_CAMERA_TYPE
-        end
+        if not v then CamlockTarget = nil; Camera.CameraType = DEFAULT_CAMERA_TYPE end
     end,
 })
 
-CamBox:AddSlider("SmoothSlider", { Text = "Smoothness", Default = 15, Min = 1, Max = 30, Rounding = 0, Callback = function(v) S.CamSmooth = v / 100 end })
-CamBox:AddInput("CamPred", { Default = "0.13", Numeric = true, Text = "Cam Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.13 end })
+CamBox:AddDropdown("LockMethodDropdown", { Text = "Lock Method", Values = { "Mouse", "Camera" }, Default = "Mouse", Callback = function(v) S.LockMethod = v end })
+CamBox:AddSlider("SmoothSlider", { Text = "Smoothness", Default = 0.927, Min = 0.01, Max = 1, Rounding = 3, Callback = function(v) S.CamSmooth = v end })
+CamBox:AddInput("CamPred", { Default = "0.273", Numeric = true, Text = "Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.273 end })
+CamBox:AddInput("PredX", { Default = "0.1", Numeric = true, Text = "Prediction X", Callback = function(v) S.PredictionX = tonumber(v) or 0.1 end })
+CamBox:AddInput("PredY", { Default = "0.1", Numeric = true, Text = "Prediction Y", Callback = function(v) S.PredictionY = tonumber(v) or 0.1 end })
 CamBox:AddSlider("CamJump", { Text = "Cam Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.CamJump = v end })
+CamBox:AddToggle("AutoPredToggle", { Text = "Auto Prediction (Ping)", Default = false, Callback = function(v) S.AutoPrediction = v end })
+CamBox:AddToggle("AntiGroundToggle", { Text = "Anti Ground", Default = false, Callback = function(v) S.AntiGround = v end })
 
-local TargetAimBox = Tabs.Legitbot:AddLeftGroupbox("Target Aim")
+local AutoAirBox = Tabs.Legitbot:AddLeftGroupbox("Auto Air")
 
-TargetAimBox:AddDropdown("TargetAimBoneMain", { Text = "Target Bone", Values = HitParts, Default = "Head", Callback = function(v) S.TargetAimBone = v end })
-TargetAimBox:AddToggle("TargetAimClosest", {
-    Text = "Use Closest Part",
-    Default = false,
-    Callback = function(v) S.TargetAimBone = v and "Closest Part" or "Head" end,
-})
+AutoAirBox:AddToggle("AutoAirToggle", { Text = "Enable Auto Air", Default = false, Callback = function(v) S.AutoAir = v end })
+AutoAirBox:AddDropdown("AutoAirPartDropdown", { Text = "Ground Aim Part", Values = HitParts, Default = "LowerTorso", Callback = function(v) S.AutoAirPart = v end })
+AutoAirBox:AddInput("AutoAirPredInput", { Default = "0.1", Numeric = true, Text = "Air Prediction", Callback = function(v) S.AutoAirPred = tonumber(v) or 0.1 end })
+AutoAirBox:AddInput("AutoAirSmoothInput", { Default = "0.1", Numeric = true, Text = "Air Smoothness", Callback = function(v) S.AutoAirSmooth = tonumber(v) or 0.1 end })
 
-local PingBox = Tabs.Legitbot:AddRightGroupbox("Ping Aim")
-
-PingBox:AddToggle("PingAimToggle", { Text = "Ping-Based Prediction", Default = false, Callback = function(v) S.PingAim = v end })
-PingBox:AddSlider("PingRefSlider", { Text = "Reference Ping", Default = 50, Min = 0, Max = 300, Rounding = 0, Suffix = "ms", Callback = function(v) S.PingRef = v end })
-PingBox:AddSlider("PingMultSlider", { Text = "Ping Multiplier", Default = 0.002, Min = 0, Max = 0.02, Rounding = 4, Callback = function(v) S.PingMult = v end })
-
-local DistBox = Tabs.Legitbot:AddRightGroupbox("Distance Aim")
-
-DistBox:AddToggle("DistAimToggle", { Text = "Distance-Based Prediction", Default = false, Callback = function(v) S.DistanceAim = v end })
-DistBox:AddSlider("DistNearSlider", { Text = "Near Range", Default = 50, Min = 0, Max = 500, Rounding = 0, Suffix = " studs", Callback = function(v) S.DistNear = v end })
-DistBox:AddSlider("DistFarSlider", { Text = "Far Range", Default = 300, Min = 0, Max = 1000, Rounding = 0, Suffix = " studs", Callback = function(v) S.DistFar = v end })
-DistBox:AddSlider("DistNearMultSlider", { Text = "Near Multiplier", Default = 0.5, Min = 0, Max = 3, Rounding = 2, Callback = function(v) S.DistNearMult = v end })
-DistBox:AddSlider("DistFarMultSlider", { Text = "Far Multiplier", Default = 2.0, Min = 0, Max = 3, Rounding = 2, Callback = function(v) S.DistFarMult = v end })
+local Rotate360Box = Tabs.Legitbot:AddRightGroupbox("360 Rotation")
+Rotate360Box:AddToggle("Rotate360Toggle", { Text = "Enable 360", Default = false, Callback = function(v) S.Rotate360 = v end })
+Rotate360Box:AddSlider("Rotate360SpeedSlider", { Text = "Rotate Speed", Default = 10000, Min = 100, Max = 100000, Rounding = 0, Callback = function(v) S.Rotate360Speed = v end })
 
 -- RAGEBOT
 
 local StrafeBox = Tabs.Ragebot:AddLeftGroupbox("Target Strafe")
-
 StrafeBox:AddToggle("StrafeToggle", { Text = "Enable Strafe", Default = false, Callback = function(v) S.Strafe = v end })
 StrafeBox:AddSlider("StrafeDistSlider", { Text = "Distance", Default = 5, Min = 1, Max = 15, Rounding = 1, Callback = function(v) S.StrafeDist = v end })
 StrafeBox:AddSlider("StrafeSpeedSlider", { Text = "Speed", Default = 6, Min = 1, Max = 20, Rounding = 1, Callback = function(v) S.StrafeSpeed = v end })
 StrafeBox:AddSlider("StrafeHeightSlider", { Text = "Height", Default = 2, Min = -5, Max = 5, Rounding = 1, Callback = function(v) S.StrafeHeight = v end })
 StrafeBox:AddToggle("ViewTargetToggle", { Text = "View Target", Default = false, Callback = function(v) S.ViewTarget = v end })
-StrafeBox:AddToggle("AutoAirToggle", { Text = "Auto Air", Default = false, Callback = function(v) S.AutoAir = v end })
-StrafeBox:AddInput("AutoAirDelayInput", { Default = "0.1", Numeric = true, Text = "Auto Air Delay", Callback = function(v) S.AutoAirDelay = tonumber(v) or 0.1 end })
 
 local HitboxBox = Tabs.Ragebot:AddRightGroupbox("Hitbox Expander")
-
 HitboxBox:AddToggle("HitboxToggle", { Text = "Enable Hitbox Expander", Default = false, Callback = function(v) S.HitboxEnabled = v end })
 HitboxBox:AddSlider("HitboxSize", { Text = "Hitbox Size", Default = 10, Min = 1, Max = 50, Rounding = 0, Callback = function(v) S.HitboxSize = v end })
 HitboxBox:AddSlider("HitboxTransparency", { Text = "Hitbox Transparency", Default = 0.7, Min = 0, Max = 1, Rounding = 2, Callback = function(v) S.HitboxTransparency = v end })
 
 local BulletTPBox = Tabs.Ragebot:AddLeftGroupbox("Bullet TP")
-
 BulletTPBox:AddToggle("BulletTPToggle", { Text = "Enable Bullet TP", Default = false, Callback = function(v) S.BulletTPEnabled = v end })
 BulletTPBox:AddSlider("BulletTPDistanceSlider", { Text = "TP Distance", Default = 15, Min = 1, Max = 50, Rounding = 0, Suffix = " studs", Callback = function(v) S.BulletTPDistance = v end })
 
 -- HITBOX LOGIC
 local HitboxCache = {}
-
 RunService.Heartbeat:Connect(function()
     if not S.HitboxEnabled then
         for plr, data in pairs(HitboxCache) do
@@ -1192,17 +1229,12 @@ RunService.Heartbeat:Connect(function()
         end
         return
     end
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LP and plr.Character then
             local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 if not HitboxCache[plr] or HitboxCache[plr].hrp ~= hrp then
-                    HitboxCache[plr] = {
-                        hrp = hrp, original_size = hrp.Size,
-                        original_transparency = hrp.Transparency,
-                        original_collide = hrp.CanCollide, highlight = nil,
-                    }
+                    HitboxCache[plr] = { hrp = hrp, original_size = hrp.Size, original_transparency = hrp.Transparency, original_collide = hrp.CanCollide, highlight = nil }
                     local hl = Instance.new("Highlight")
                     hl.FillColor = Color3.fromRGB(255, 140, 0)
                     hl.OutlineColor = Color3.fromRGB(255, 215, 0)
@@ -1217,13 +1249,10 @@ RunService.Heartbeat:Connect(function()
                 hrp.Size = Vector3.new(size, size, size)
                 hrp.Transparency = S.HitboxTransparency
                 hrp.CanCollide = false
-                if HitboxCache[plr].highlight then
-                    HitboxCache[plr].highlight.FillTransparency = S.HitboxTransparency
-                end
+                if HitboxCache[plr].highlight then HitboxCache[plr].highlight.FillTransparency = S.HitboxTransparency end
             end
         end
     end
-
     for plr, data in pairs(HitboxCache) do
         if not plr.Parent or not data.hrp or not data.hrp.Parent then
             if data.highlight and data.highlight.Parent then data.highlight:Destroy() end
@@ -1232,7 +1261,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- BULLET TP LOGIC
+-- BULLET TP
 local bulletTP_toolConn, bulletTP_addConn
 
 local function BulletTP_GetTarget()
@@ -1264,7 +1293,6 @@ local function BulletTP_Snap(tool)
     if not char then return end
     local rightHand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
     if not rightHand then return end
-
     local vel = targetPart.AssemblyLinearVelocity
     local predPos = targetPart.Position + Vector3.new(vel.X * 0.1, vel.Y * 0.1, vel.Z * 0.1)
     local root = char:FindFirstChild("HumanoidRootPart")
@@ -1272,7 +1300,6 @@ local function BulletTP_Snap(tool)
     local dir = (predPos - root.Position).Unit
     local distance = S.BulletTPDistance or 15
     local targetCF = CFrame.new(predPos - dir * distance)
-
     local oldGrip = tool.Grip
     tool.Parent = LP.Backpack
     rightHand.Anchored = false
@@ -1289,7 +1316,6 @@ end
 local function BulletTP_Setup(character)
     if bulletTP_toolConn then bulletTP_toolConn:Disconnect(); bulletTP_toolConn = nil end
     if bulletTP_addConn then bulletTP_addConn:Disconnect(); bulletTP_addConn = nil end
-
     local function onTool(tool)
         if tool:IsA("Tool") and S.BulletTPEnabled then
             bulletTP_toolConn = tool.Activated:Connect(function()
@@ -1297,7 +1323,6 @@ local function BulletTP_Setup(character)
             end)
         end
     end
-
     for _, tool in ipairs(character:GetChildren()) do
         if tool:IsA("Tool") then onTool(tool) end
     end
@@ -1315,7 +1340,6 @@ end)
 -- VISUAL
 
 local VisualBox = Tabs.Visual:AddLeftGroupbox("ESP")
-
 VisualBox:AddToggle("ESPMaster", { Text = "Master Switch", Default = true, Callback = function(v) ESP.visuals_enabled = v end })
 
 local BoxToggle = VisualBox:AddToggle("ESPBox", { Text = "Box", Default = false, Callback = function(v) ESP.box.enabled = v end })
@@ -1353,23 +1377,18 @@ VisualBox:AddSlider("ArmorWidth", { Text = "Armor Bar Width", Default = 1, Min =
 VisualBox:AddToggle("ArmorText", { Text = "Armor Text", Default = false, Callback = function(v) ESP.armor_bar.text.enabled = v end })
 
 local LabelsBox = Tabs.Visual:AddLeftGroupbox("Labels")
-
 local NameToggle = LabelsBox:AddToggle("ESPName", { Text = "Name", Default = false, Callback = function(v) ESP.labels.name.enabled = v end })
 NameToggle:AddColorPicker("NameColor", { Default = ESP.labels.name.color, Title = "Name Color", Callback = function(c) ESP.labels.name.color = c end })
 NameToggle:AddColorPicker("NameOutline", { Default = ESP.labels.name.outline_color, Title = "Name Outline", Callback = function(c) ESP.labels.name.outline_color = c end })
-
 local DisplayToggle = LabelsBox:AddToggle("ESPDisplayName", { Text = "Display Name", Default = false, Callback = function(v) ESP.labels.display_name.enabled = v end })
 DisplayToggle:AddColorPicker("DisplayColor", { Default = ESP.labels.display_name.color, Title = "Display Color", Callback = function(c) ESP.labels.display_name.color = c end })
 DisplayToggle:AddColorPicker("DisplayOutline", { Default = ESP.labels.display_name.outline_color, Title = "Display Outline", Callback = function(c) ESP.labels.display_name.outline_color = c end })
-
 local DistLabelToggle = LabelsBox:AddToggle("ESPDistance", { Text = "Distance", Default = false, Callback = function(v) ESP.labels.distance.enabled = v end })
 DistLabelToggle:AddColorPicker("DistColor", { Default = ESP.labels.distance.color, Title = "Distance Color", Callback = function(c) ESP.labels.distance.color = c end })
-
 local ToolToggle = LabelsBox:AddToggle("ESPTool", { Text = "Tool", Default = false, Callback = function(v) ESP.labels.tool.enabled = v end })
 ToolToggle:AddColorPicker("ToolColor", { Default = ESP.labels.tool.color, Title = "Tool Color", Callback = function(c) ESP.labels.tool.color = c end })
 
 local FovBox = Tabs.Visual:AddRightGroupbox("FOV Circle")
-
 local FovToggle = FovBox:AddToggle("ESPFov", { Text = "Enable FOV", Default = false, Callback = function(v) ESP.fov.enabled = v end })
 FovToggle:AddColorPicker("FovColor", { Default = ESP.fov.color, Title = "FOV Color", Callback = function(c) ESP.fov.color = c end })
 FovToggle:AddColorPicker("FovOutline", { Default = ESP.fov.outline_color, Title = "FOV Outline", Callback = function(c) ESP.fov.outline_color = c end })
@@ -1379,34 +1398,23 @@ FovBox:AddSlider("FovTransparency", { Text = "FOV Transparency", Default = 0.4, 
 FovBox:AddToggle("FovFilled", { Text = "FOV Filled", Default = false, Callback = function(v) ESP.fov.filled = v end })
 
 local EffectBox = Tabs.Visual:AddRightGroupbox("Effects")
-
 EffectBox:AddToggle("HitSoundToggle", { Text = "Hit Sound", Default = true, Callback = function(v) S.HitSoundEnabled = v end })
-EffectBox:AddDropdown("HitSoundDropdown", {
-    Values = { "Bameware", "Bell", "Bubble", "Pick", "Pop", "Rust", "Skeet", "Fatality", "Bonk", "Minecraft" },
-    Default = "Skeet",
-    Callback = function(v) S.SelectedHitSound = v end,
-})
+EffectBox:AddDropdown("HitSoundDropdown", { Values = { "Bameware", "Bell", "Bubble", "Pick", "Pop", "Rust", "Skeet", "Fatality", "Bonk", "Minecraft" }, Default = "Skeet", Callback = function(v) S.SelectedHitSound = v end })
 EffectBox:AddToggle("HitEffectToggle", { Text = "Hit Effect", Default = true, Callback = function(v) S.HitEffectEnabled = v end })
-EffectBox:AddDropdown("HitEffectDropdown", {
-    Values = { "Cum", "Crescent Slash", "Confetti", "Bubble" },
-    Default = "Crescent Slash",
-    Callback = function(v) S.SelectedHitEffect = v end,
-})
+EffectBox:AddDropdown("HitEffectDropdown", { Values = { "Cum", "Crescent Slash", "Confetti", "Bubble" }, Default = "Crescent Slash", Callback = function(v) S.SelectedHitEffect = v end })
 
-local StatsToggle = Tabs.Visual:AddRightGroupbox("Stats")
-StatsToggle:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
+local StatsBox = Tabs.Visual:AddRightGroupbox("Stats")
+StatsBox:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
 
 -- MISC
 
 local AutoBuyBox = Tabs.Misc:AddLeftGroupbox("Auto Buy")
-
 AutoBuyBox:AddToggle("AutoFoodToggle", { Text = "Auto Buy Food", Default = false, Callback = function(v) S.AutoFood = v end })
 AutoBuyBox:AddDropdown("AutoFoodDropdown", { Text = "Food Type", Values = { "[Chicken]", "[Burger]", "[Pizza]", "[Taco]", "[Donut]" }, Default = "[Chicken]", Callback = function(v) S.SelectedFood = v end })
 AutoBuyBox:AddToggle("AutoArmorToggle", { Text = "Auto Buy Armor", Default = false, Callback = function(v) S.AutoArmor = v end })
 AutoBuyBox:AddDropdown("AutoArmorDropdown", { Text = "Armor Type", Values = { "[Medium Armor]", "[High-Medium Armor]" }, Default = "[Medium Armor]", Callback = function(v) S.SelectedArmor = v end })
 
 local AutomationBox = Tabs.Misc:AddRightGroupbox("Automation")
-
 AutomationBox:AddToggle("MacroToggle", { Text = "Macro", Default = false, Callback = function(v) S.MacroEnabled = v end })
 AutomationBox:AddDropdown("MacroModeDropdown", { Text = "Macro Mode", Values = { "Legit", "Speed" }, Default = "Legit", Callback = function(v) S.MacroMode = v end })
 AutomationBox:AddToggle("AutoReloadToggle", { Text = "Auto Reload", Default = false, Callback = function(v) S.AutoReload = v end })
@@ -1456,9 +1464,8 @@ task.spawn(function()
     end
 end)
 
--- MACRO LOGIC
+-- MACRO
 local originalWalkSpeed = nil
-
 RunService.RenderStepped:Connect(function()
     if not S.MacroEnabled then
         if originalWalkSpeed and LP.Character then
@@ -1471,7 +1478,6 @@ RunService.RenderStepped:Connect(function()
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if not (char and root and hum) then return end
-
     if S.MacroMode == "Legit" then
         local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         local ray = Camera:ViewportPointToRay(center.X, center.Y, 0)
@@ -1485,10 +1491,7 @@ RunService.RenderStepped:Connect(function()
         if hum.WalkSpeed ~= 200 then hum.WalkSpeed = 200 end
     end
 end)
-
-LP.CharacterAdded:Connect(function()
-    originalWalkSpeed = nil
-end)
+LP.CharacterAdded:Connect(function() originalWalkSpeed = nil end)
 
 -- AUTO RELOAD
 RunService.RenderStepped:Connect(function()
@@ -1507,7 +1510,6 @@ end)
 -- AUTO STOMP
 local stompLastFire = 0
 local stompFirstFired = false
-
 RunService.RenderStepped:Connect(function()
     if S.AutoStomp then
         local remote = game:GetService("ReplicatedStorage"):FindFirstChild("MAINEVENT")
@@ -1515,8 +1517,7 @@ RunService.RenderStepped:Connect(function()
             if S.AutoStompMode == "Normal" then
                 if not stompFirstFired then
                     pcall(function() remote:FireServer("STOMP") end)
-                    stompLastFire = tick()
-                    stompFirstFired = true
+                    stompLastFire = tick(); stompFirstFired = true
                 elseif tick() - stompLastFire >= 0.8 then
                     pcall(function() remote:FireServer("STOMP") end)
                     stompLastFire = tick()
@@ -1528,18 +1529,11 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         end
-    else
-        stompFirstFired = false
-    end
+    else stompFirstFired = false end
 end)
 
 -- LOCK BUTTON
-local LockGui = inew("ScreenGui", {
-    Name = "CrispyLock",
-    Parent = CoreGui,
-    ResetOnSpawn = false,
-})
-
+local LockGui = inew("ScreenGui", { Name = "CrispyLock", Parent = CoreGui, ResetOnSpawn = false })
 local LockBtn = inew("ImageButton", {
     Parent = LockGui,
     Size = UDim2.new(0, 90, 0, 90),
@@ -1579,12 +1573,10 @@ UIS.InputBegan:Connect(function(input, gpe)
 end)
 
 -- MAIN LOOPS
-
 RunService.RenderStepped:Connect(function(dt)
     if S.Enabled and S.AutoSelect then
         local best, closest = math.huge, nil
         local center = Camera.ViewportSize / 2
-
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LP and plr.Character then
                 local hum = plr.Character:FindFirstChildOfClass("Humanoid")
@@ -1598,7 +1590,6 @@ RunService.RenderStepped:Connect(function(dt)
                 end
             end
         end
-
         if closest and closest.Character then
             local hrp = closest.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
@@ -1611,44 +1602,22 @@ RunService.RenderStepped:Connect(function(dt)
     end
 
     local activeHRP = Target.HRP or CamlockTarget
-
     if activeHRP and activeHRP.Parent and S.Strafe and LP.Character then
         StrafeAngle = StrafeAngle + dt * S.StrafeSpeed
-        local off = Vector3.new(
-            math.cos(StrafeAngle) * S.StrafeDist,
-            S.StrafeHeight,
-            math.sin(StrafeAngle) * S.StrafeDist
-        )
+        local off = Vector3.new(math.cos(StrafeAngle) * S.StrafeDist, S.StrafeHeight, math.sin(StrafeAngle) * S.StrafeDist)
         local pos = activeHRP.Position + off
         local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
-            if S.ViewTarget then
-                Camera.CFrame = CFrame.new(pos, activeHRP.Position)
-            else
-                hrp.CFrame = CFrame.new(pos, activeHRP.Position)
-            end
+            if S.ViewTarget then Camera.CFrame = CFrame.new(pos, activeHRP.Position)
+            else hrp.CFrame = CFrame.new(pos, activeHRP.Position) end
         end
     elseif activeHRP and activeHRP.Parent and S.ViewTarget then
         Camera.CFrame = CFrame.new(Camera.CFrame.Position, activeHRP.Position)
     end
-
-    if S.AutoAir and activeHRP and activeHRP.Parent and LP.Character and not AirDebounce then
-        local tool = LP.Character:FindFirstChildOfClass("Tool")
-        if tool and activeHRP.Velocity.Y > 15 then
-            AirDebounce = true
-            task.spawn(function()
-                pcall(function() tool:Activate() end)
-                task.wait(S.AutoAirDelay)
-                AirDebounce = false
-            end)
-        end
-    end
 end)
 
 -- HIT DETECT
-
 local lastHealthCache = {}
-
 RunService.PostSimulation:Connect(function()
     local tp = CurrentTarget.Player
     if not S.Enabled or not tp or not tp.Character then return end
@@ -1665,13 +1634,9 @@ RunService.PostSimulation:Connect(function()
     end
     lastHealthCache[uid] = hum.Health
 end)
-
-Players.PlayerRemoving:Connect(function(p)
-    lastHealthCache[p.UserId] = nil
-end)
+Players.PlayerRemoving:Connect(function(p) lastHealthCache[p.UserId] = nil end)
 
 -- CONFIG
-
 pcall(function()
     ThemeManager:SetLibrary(Library)
     SaveManager:SetLibrary(Library)
