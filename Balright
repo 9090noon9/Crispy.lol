@@ -26,21 +26,35 @@ local Library      = loadstring(game:HttpGet(repo .. "Library.lua"))()
 local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
 local SaveManager  = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
--- Linoria default purple theme (already set by library, we just ensure it)
+-- TOKYO NIGHT THEME
 pcall(function()
-    Library.Theme = Library.Theme or {
-        Background = Color3.fromRGB(15, 15, 20),
-        Inline = Color3.fromRGB(20, 20, 25),
-        PageBackground = Color3.fromRGB(30, 30, 35),
-        Border = Color3.fromRGB(10, 10, 10),
-        Outline = Color3.fromRGB(27, 27, 32),
-        Accent = Color3.fromRGB(235, 157, 255),
-        Element = Color3.fromRGB(33, 33, 36),
-        HoveredElement = Color3.fromRGB(40, 40, 43),
-        Text = Color3.fromRGB(215, 215, 215),
-        TextBorder = Color3.fromRGB(0, 0, 0),
-    }
+    Library.Theme = Library.Theme or {}
+    Library.Theme["Background"]       = Color3.fromRGB(26, 27, 38)
+    Library.Theme["Inline"]           = Color3.fromRGB(36, 40, 59)
+    Library.Theme["Page Background"]  = Color3.fromRGB(22, 22, 30)
+    Library.Theme["Border"]           = Color3.fromRGB(15, 15, 20)
+    Library.Theme["Outline"]          = Color3.fromRGB(65, 72, 104)
+    Library.Theme["Accent"]           = Color3.fromRGB(187, 154, 247)
+    Library.Theme["Element"]          = Color3.fromRGB(36, 40, 59)
+    Library.Theme["Hovered Element"]  = Color3.fromRGB(52, 58, 82)
+    Library.Theme["Text"]             = Color3.fromRGB(192, 202, 245)
+    Library.Theme["Text Border"]      = Color3.fromRGB(0, 0, 0)
 end)
+
+local TN = {
+    bg     = Color3.fromRGB(26, 27, 38),
+    surf   = Color3.fromRGB(36, 40, 59),
+    border = Color3.fromRGB(65, 72, 104),
+    text   = Color3.fromRGB(192, 202, 245),
+    sub    = Color3.fromRGB(122, 130, 168),
+    accent = Color3.fromRGB(187, 154, 247),
+    blue   = Color3.fromRGB(122, 162, 247),
+    cyan   = Color3.fromRGB(125, 207, 255),
+    green  = Color3.fromRGB(158, 206, 106),
+    red    = Color3.fromRGB(247, 118, 142),
+    yellow = Color3.fromRGB(224, 175, 104),
+    orange = Color3.fromRGB(255, 158, 100),
+}
 
 local PingSets = {
     { max = 20,  pred = 0.11 }, { max = 30,  pred = 0.12 }, { max = 40,  pred = 0.126 },
@@ -51,7 +65,6 @@ local PingSets = {
     { max = 205, pred = 0.209 }, { max = 215, pred = 0.24 }, { max = 225, pred = 1.4 },
     { max = 9999, pred = 0.273 },
 }
-
 local DistanceSets = {
     { maxDist = 50,   mult = 0.6 }, { maxDist = 100,  mult = 0.8 },
     { maxDist = 200,  mult = 1.0 }, { maxDist = 400,  mult = 1.3 },
@@ -62,6 +75,7 @@ local S = {
     Enabled = true, JumpOffset = 0,
     Camlock = false, CamSmooth = 0.15, CamPred = 0.13, CamJump = 0,
     AimPart = "UpperTorso",
+    CamWallcheck = false, CamKnocked = true, KnockedHP = 5,
     AutoPrediction = false,
     PingSetsEnabled = false, DistSetsEnabled = false,
     Silent = false, SilentAimPart = "HumanoidRootPart",
@@ -80,6 +94,7 @@ local S = {
     MacroEnabled = false, MacroMode = "Legit",
     AutoReload = false,
     AutoStomp = false, AutoStompMode = "Normal",
+    AutoSelect = false,
 }
 
 local CurrentTarget = { Player = nil, HRP = nil }
@@ -115,31 +130,22 @@ local function GetCurrentPing()
     end)
     return ping
 end
-
 local function GetPingSetPrediction()
     local ping = GetCurrentPing()
-    for _, set in ipairs(PingSets) do
-        if ping < set.max then return set.pred end
-    end
+    for _, set in ipairs(PingSets) do if ping < set.max then return set.pred end end
     return 0.273
 end
-
 local function GetDistanceMultiplier(dist)
-    for _, set in ipairs(DistanceSets) do
-        if dist < set.maxDist then return set.mult end
-    end
+    for _, set in ipairs(DistanceSets) do if dist < set.maxDist then return set.mult end end
     return 1.0
 end
-
 local function GetPredictionFor(targetPart)
     local pred = S.CamPred
     if S.PingSetsEnabled or S.AutoPrediction then pred = GetPingSetPrediction() end
     if S.DistSetsEnabled and targetPart then
         local myChar = LP.Character
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if myHRP then
-            pred = pred * GetDistanceMultiplier((myHRP.Position - targetPart.Position).Magnitude)
-        end
+        if myHRP then pred = pred * GetDistanceMultiplier((myHRP.Position - targetPart.Position).Magnitude) end
     end
     return math.clamp(pred, 0, 3)
 end
@@ -162,6 +168,31 @@ local function GetClosestPartToCrosshair(char)
     return bestPart or char:FindFirstChild("HumanoidRootPart")
 end
 
+-- wallcheck helper
+local function IsVisible(targetChar, targetPart)
+    if not targetChar or not targetPart then return false end
+    local origin = Camera.CFrame.Position
+    local dest = targetPart.Position
+    local dir = dest - origin
+    local dist = dir.Magnitude
+    if dist < 0.1 then return true end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { LP.Character, Camera, targetChar }
+    params.IgnoreWater = true
+    local result = Workspace:Raycast(origin, dir, params)
+    return result == nil
+end
+
+-- knocked check
+local function IsKnocked(plr)
+    if not plr or not plr.Character then return false end
+    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    if hum.Health <= (S.KnockedHP or 5) then return true end
+    return false
+end
+
 local Hitsounds = {
     Bameware = "rbxassetid://3124331820", Bell = "rbxassetid://6534947240",
     Bubble = "rbxassetid://6534947588", Pick = "rbxassetid://1347140027",
@@ -171,14 +202,11 @@ local Hitsounds = {
 }
 local HitSoundPlayer = Instance.new("Sound", Workspace)
 HitSoundPlayer.Volume = 0.7
-
 local function PlayHitSound()
     if not S.HitSoundEnabled then return end
     local id = Hitsounds[S.SelectedHitSound]
     if id then
-        HitSoundPlayer.SoundId = id
-        HitSoundPlayer.TimePosition = 0
-        HitSoundPlayer:Play()
+        HitSoundPlayer.SoundId = id; HitSoundPlayer.TimePosition = 0; HitSoundPlayer:Play()
     end
 end
 
@@ -186,7 +214,7 @@ local function HitEffect(position)
     if not S.HitEffectEnabled then return end
     local part = inew("Part", { Position = position, Anchored = true, Transparency = 1, CanCollide = false, Parent = Workspace })
     local att = inew("Attachment", { Parent = part })
-    local col = Color3.fromRGB(91, 177, 252)
+    local col = TN.accent
     if S.SelectedHitEffect == "Cum" then
         local e = inew("ParticleEmitter", { LightInfluence = 0.5, Lifetime = NumberRange.new(1, 1), SpreadAngle = Vector2.new(360, -360), Speed = NumberRange.new(20, 20), Brightness = 2.5, Rate = 100, Texture = "rbxassetid://8297030850", Acceleration = Vector3.new(0, -66, 0), Orientation = Enum.ParticleOrientation.VelocityParallel, Parent = att })
         e:Emit()
@@ -208,23 +236,23 @@ end
 
 local ESP = {
     visuals_enabled = true,
-    box = { enabled = false, filled = false, color = Color3.fromRGB(235, 157, 255), outline_color = Color3.fromRGB(0, 0, 0), transparency = 0.6, thickness = 1.5,
-        gradient = { enabled = true, top_color = Color3.fromRGB(235, 157, 255), bottom_color = Color3.fromRGB(150, 90, 200), rotation = 90, rotation_speed = 9 } },
-    skeleton = { enabled = false, color = Color3.fromRGB(235, 157, 255), thickness = 1.2, transparency = 0.15,
-        outline = { enabled = false, color = Color3.fromRGB(0, 0, 0), thickness = 2.5 } },
+    box = { enabled = false, filled = false, color = TN.accent, outline_color = TN.border, transparency = 0.6, thickness = 1.5,
+        gradient = { enabled = true, top_color = TN.accent, bottom_color = TN.blue, rotation = 90, rotation_speed = 9 } },
+    skeleton = { enabled = false, color = TN.accent, thickness = 1.2, transparency = 0.15,
+        outline = { enabled = false, color = TN.border, thickness = 2.5 } },
     health_bar = { enabled = false, width = 1,
-        text = { enabled = false, show_numeric = false, color = Color3.fromRGB(215, 215, 215), outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
-        gradient = { enabled = true, top_color = Color3.fromRGB(0, 255, 0), bottom_color = Color3.fromRGB(255, 0, 0), rotation = 90 } },
+        text = { enabled = false, show_numeric = false, color = TN.text, outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
+        gradient = { enabled = true, top_color = TN.green, bottom_color = TN.red, rotation = 90 } },
     armor_bar = { enabled = false, width = 1, max_armor = 100,
-        text = { enabled = false, show_numeric = false, color = Color3.fromRGB(215, 215, 215), outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
-        gradient = { enabled = true, top_color = Color3.fromRGB(0, 100, 255), bottom_color = Color3.fromRGB(100, 150, 255), rotation = 90 } },
+        text = { enabled = false, show_numeric = false, color = TN.text, outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
+        gradient = { enabled = true, top_color = TN.blue, bottom_color = TN.cyan, rotation = 90 } },
     labels = {
-        name = { enabled = false, color = Color3.fromRGB(215, 215, 215), outline_color = Color3.fromRGB(0, 0, 0), size = 13 },
-        distance = { enabled = false, color = Color3.fromRGB(200, 200, 200), outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
-        tool = { enabled = false, color = Color3.fromRGB(255, 255, 150), outline_color = Color3.fromRGB(0, 0, 0), size = 11 },
+        name = { enabled = false, color = TN.text, outline_color = Color3.fromRGB(0, 0, 0), size = 13 },
+        distance = { enabled = false, color = TN.sub, outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
+        tool = { enabled = false, color = TN.yellow, outline_color = Color3.fromRGB(0, 0, 0), size = 11 },
     },
-    chams = { enabled = false, fill_color = Color3.fromRGB(235, 157, 255), outline_color = Color3.fromRGB(255, 255, 255), fill_transparency = 0.5, outline_transparency = 0 },
-    fov = { enabled = false, radius = 150, color = Color3.fromRGB(235, 157, 255), outline_color = Color3.fromRGB(0, 0, 0), thickness = 1, transparency = 0.4, filled = false },
+    chams = { enabled = false, fill_color = TN.accent, outline_color = Color3.fromRGB(255, 255, 255), fill_transparency = 0.5, outline_transparency = 0 },
+    fov = { enabled = false, radius = 150, color = TN.accent, outline_color = TN.border, thickness = 1, transparency = 0.4, filled = false },
 }
 local esp
 do
@@ -280,7 +308,7 @@ do
     self.funcs.make_text = function(parent)
         return inew("TextLabel", {
             Parent = parent, Size = UDim2.new(0, 200, 0, 20),
-            BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255),
+            BackgroundTransparency = 1, TextColor3 = TN.text,
             TextStrokeTransparency = 0, TextSize = 12, TextStrokeColor3 = Color3.fromRGB(0, 0, 0),
             Font = FONT,
             TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center,
@@ -322,14 +350,14 @@ do
         local h_out = inew("Frame", { BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, Parent = h_gui, ZIndex = 6 })
         local h_fill = inew("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = h_out, ZIndex = 7 })
         inew("UIGradient", { Parent = h_fill, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, ESP.health_bar.gradient.top_color), ColorSequenceKeypoint.new(1, ESP.health_bar.gradient.bottom_color) }), Rotation = 90 })
-        local h_text = inew("TextLabel", { BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), TextSize = 10, Font = FONT, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Parent = h_fill, ZIndex = 8 })
+        local h_text = inew("TextLabel", { BackgroundTransparency = 1, TextColor3 = TN.text, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), TextSize = 10, Font = FONT, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Parent = h_fill, ZIndex = 8 })
         cache.bars.health = { gui = h_gui, outline = h_out, frame = h_fill, text = h_text, last_health = 1 }
 
         local a_gui = inew("ScreenGui", { Name = player.Name .. "_A", ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = self.vars.core_gui, ResetOnSpawn = false, IgnoreGuiInset = true })
         local a_out = inew("Frame", { BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, Parent = a_gui, ZIndex = 6 })
         local a_fill = inew("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = a_out, ZIndex = 7 })
         inew("UIGradient", { Parent = a_fill, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, ESP.armor_bar.gradient.top_color), ColorSequenceKeypoint.new(1, ESP.armor_bar.gradient.bottom_color) }), Rotation = 90 })
-        local a_text = inew("TextLabel", { BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255), TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), TextSize = 10, Font = FONT, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Parent = a_fill, ZIndex = 8 })
+        local a_text = inew("TextLabel", { BackgroundTransparency = 1, TextColor3 = TN.text, TextStrokeTransparency = 0, TextStrokeColor3 = Color3.fromRGB(0, 0, 0), TextSize = 10, Font = FONT, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, Parent = a_fill, ZIndex = 8 })
         cache.bars.armor = { gui = a_gui, outline = a_out, frame = a_fill, text = a_text, last_armor = 0 }
 
         self.cache[player] = cache
@@ -518,9 +546,7 @@ do
                                 s.outline.Position = UDim2.new(0, fpos.X, 0, fpos.Y)
                                 s.outline.Rotation = angle
                                 s.outline.BackgroundColor3 = ESP.skeleton.outline.color
-                            elseif s.outline then
-                                s.outline.Visible = false
-                            end
+                            elseif s.outline then s.outline.Visible = false end
                             s.line.Visible = true
                             s.line.Size = UDim2.new(0, length, 0, 1)
                             s.line.Position = UDim2.new(0, fpos.X, 0, fpos.Y)
@@ -709,52 +735,91 @@ if HAS_DRAWING then
     end)
 end
 
--- Target stats — Linoria default theme, Code font
-local Theme = Library.Theme or {}
-local BG_COLOR      = Theme["Background"] or Color3.fromRGB(15, 15, 20)
-local ACCENT_COLOR  = Theme["Accent"]     or Color3.fromRGB(235, 157, 255)
-local TEXT_COLOR    = Theme["Text"]       or Color3.fromRGB(215, 215, 215)
-local ELEM_COLOR    = Theme["Element"]    or Color3.fromRGB(33, 33, 36)
-local OUTLINE_COLOR = Theme["Outline"]    or Color3.fromRGB(27, 27, 32)
-
+-- ============================================================
+-- TARGET STATS — styled to match Linoria groupbox exactly
+-- ============================================================
 local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true })
+
+-- Outer frame (Linoria groupbox style)
 local StatsFrame = inew("Frame", {
     Parent = StatsGui,
     AnchorPoint = Vector2.new(0.5, 0),
     Position = UDim2.new(0.5, 0, 0.03, 0),
-    Size = UDim2.new(0, 280, 0, 0),
+    Size = UDim2.new(0, 260, 0, 0),
     AutomaticSize = Enum.AutomaticSize.Y,
-    BackgroundColor3 = BG_COLOR,
+    BackgroundColor3 = TN.bg,
     BorderSizePixel = 0,
     Visible = false,
 })
-inew("UIStroke", { Parent = StatsFrame, Color = ACCENT_COLOR, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
-inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = ACCENT_COLOR, BorderSizePixel = 0 })
-inew("UIPadding", { Parent = StatsFrame, PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) })
-inew("UIListLayout", { Parent = StatsFrame, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder })
+-- Linoria uses a thick border + accent-colored outline stroke
+inew("UIStroke", { Parent = StatsFrame, Color = TN.border, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+inew("UIStroke", { Parent = StatsFrame, Color = TN.accent, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
 
-local StatsHeader = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1 })
-local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = ELEM_COLOR, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
-inew("UIStroke", { Parent = StatsAvatar, Color = ACCENT_COLOR, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
-local StatsName = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 2), Size = UDim2.new(1, -48, 0, 18), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left })
-local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = Color3.fromRGB(150, 150, 150), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
+-- Accent top line (Linoria signature)
+inew("Frame", {
+    Parent = StatsFrame,
+    Size = UDim2.new(1, 0, 0, 2),
+    BackgroundColor3 = TN.accent,
+    BorderSizePixel = 0,
+})
 
-local function MakeSeparator(order)
-    inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = OUTLINE_COLOR, BorderSizePixel = 0, LayoutOrder = order })
-end
+-- Title bar (matches Linoria section header)
+local TitleBar = inew("Frame", {
+    Parent = StatsFrame,
+    Position = UDim2.new(0, 0, 0, 2),
+    Size = UDim2.new(1, 0, 0, 20),
+    BackgroundColor3 = TN.surf,
+    BorderSizePixel = 0,
+})
+local TitleText = inew("TextLabel", {
+    Parent = TitleBar,
+    Size = UDim2.new(1, -12, 1, 0),
+    Position = UDim2.new(0, 8, 0, -1),
+    BackgroundTransparency = 1,
+    Font = FONT,
+    Text = "Target",
+    TextColor3 = TN.text,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+})
+inew("UIStroke", { Parent = TitleText, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+
+-- Content area (matches Linoria inner inline box)
+local ContentFrame = inew("Frame", {
+    Parent = StatsFrame,
+    Position = UDim2.new(0, 0, 0, 22),
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundColor3 = TN.bg,
+    BorderSizePixel = 0,
+})
+inew("UIPadding", { Parent = ContentFrame, PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) })
+inew("UIListLayout", { Parent = ContentFrame, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder })
+
+-- Header block (avatar + name)
+local StatsHeader = inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1 })
+local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = TN.surf, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
+inew("UIStroke", { Parent = StatsAvatar, Color = TN.border, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+local StatsName = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 2), Size = UDim2.new(1, -48, 0, 18), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.text, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left })
+inew("UIStroke", { Parent = StatsName, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.sub, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
+inew("UIStroke", { Parent = StatsSub, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+
+-- Divider
+inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = TN.border, BorderSizePixel = 0, LayoutOrder = 2 })
+
 local function MakeStatRow(order, label_text)
-    local row = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, LayoutOrder = order })
-    inew("Frame", { Parent = row, Size = UDim2.new(0, 3, 0, 12), Position = UDim2.new(0, 0, 0.5, -6), BackgroundColor3 = ACCENT_COLOR, BorderSizePixel = 0 })
-    inew("TextLabel", { Parent = row, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = label_text, TextColor3 = Color3.fromRGB(160, 160, 160), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
-    return inew("TextLabel", { Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right })
+    local row = inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 15), BackgroundTransparency = 1, LayoutOrder = order })
+    inew("TextLabel", { Parent = row, Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = label_text, TextColor3 = TN.sub, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left })
+    local val = inew("TextLabel", { Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.text, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right })
+    inew("UIStroke", { Parent = val, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+    return val
 end
 
-MakeSeparator(2)
 local RowHealth = MakeStatRow(3, "Health")
 local RowArmor  = MakeStatRow(4, "Armor")
 local RowDist   = MakeStatRow(5, "Distance")
-MakeSeparator(6)
-local RowStatus = MakeStatRow(7, "Status")
+local RowStatus = MakeStatRow(6, "Status")
 
 RunService.Heartbeat:Connect(function()
     pcall(function()
@@ -767,27 +832,29 @@ RunService.Heartbeat:Connect(function()
         StatsFrame.Visible = true
         StatsAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tp.UserId .. "&w=150&h=150"
         StatsName.Text = hum.DisplayName or tp.Name
-        StatsSub.Text = "@" .. tp.Name .. "  ·  " .. math.floor(hum.Health) .. "hp"
+        StatsSub.Text = "@" .. tp.Name
         RowHealth.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
-        RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3 and Color3.fromRGB(255, 80, 80) or TEXT_COLOR
+        RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3 and TN.red or TN.text
         local be = tp.Character:FindFirstChild("BodyEffects")
         local av = be and be:FindFirstChild("Armor")
         local armor = av and math.floor(av.Value) or 0
         RowArmor.Text = tostring(armor)
-        RowArmor.TextColor3 = armor > 0 and Color3.fromRGB(100, 180, 255) or TEXT_COLOR
+        RowArmor.TextColor3 = armor > 0 and TN.cyan or TN.text
         local myChar = LP.Character
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         RowDist.Text = (myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0) .. " studs"
         local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
         if myHum then
-            if myHum.Health > hum.Health then RowStatus.Text = "Winning"; RowStatus.TextColor3 = Color3.fromRGB(80, 220, 100)
-            elseif myHum.Health < hum.Health then RowStatus.Text = "Losing"; RowStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
-            else RowStatus.Text = "Even"; RowStatus.TextColor3 = Color3.fromRGB(255, 210, 80) end
+            if myHum.Health > hum.Health then RowStatus.Text = "Winning"; RowStatus.TextColor3 = TN.green
+            elseif myHum.Health < hum.Health then RowStatus.Text = "Losing"; RowStatus.TextColor3 = TN.red
+            else RowStatus.Text = "Even"; RowStatus.TextColor3 = TN.yellow end
         end
     end)
 end)
 
--- Lock functions
+-- ============================================================
+-- LOCK — WITH WALLCHECK + KNOCKED CHECK
+-- ============================================================
 local function applyLock()
     if Target.Player then return end
     local closest, best = nil, math.huge
@@ -797,10 +864,22 @@ local function applyLock()
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
             local hrp = plr.Character.HumanoidRootPart
             if hum and hum.Health > 0 then
-                local pos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-                if onScreen then
-                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < best then best = dist; closest = plr end
+                -- KNOCKED CHECK
+                if S.CamKnocked and hum.Health <= (S.KnockedHP or 5) then
+                    -- skip
+                else
+                    -- WALLCHECK
+                    local visible = true
+                    if S.CamWallcheck then
+                        visible = IsVisible(plr.Character, hrp)
+                    end
+                    if visible then
+                        local pos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+                        if onScreen then
+                            local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                            if dist < best then best = dist; closest = plr end
+                        end
+                    end
                 end
             end
         end
@@ -830,7 +909,7 @@ local function toggleLock()
     end)
 end
 
--- Hook cache precompute
+-- Hook cache precompute (outside hooks)
 RunService.RenderStepped:Connect(function()
     local tp = Target.Player
     if not S.Enabled or not tp or not tp.Character then HookCache.active = false; return end
@@ -851,8 +930,7 @@ RunService.RenderStepped:Connect(function()
     HookCache.active = true
 end)
 
--- CAMLOCK — honor's exact logic. No Scriptable, no BindToRenderStep.
--- Lerps Camera.CFrame on RenderStepped, keeps first-person POV intact.
+-- CAMLOCK LOOP — honor's exact logic (no Scriptable, no BindToRenderStep)
 RunService.RenderStepped:Connect(function()
     if not S.Camlock then return end
     if not CamlockTarget or not CamlockTarget.Parent then return end
@@ -862,13 +940,13 @@ RunService.RenderStepped:Connect(function()
     Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), S.CamSmooth)
 end)
 
--- 360
+-- 360 rotation
 RunService.RenderStepped:Connect(function(dt)
     if not S.Rotate360 then return end
     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
 end)
 
--- Hooks
+-- Hooks (no function calls inside — cached only)
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
     if checkcaller() or not HookCache.active then return oldnc(self_, ...) end
@@ -924,8 +1002,12 @@ local Tabs = {
 }
 
 -- LEGITBOT
+
 local CombatBox = Tabs.Legitbot:AddLeftGroupbox("Aim")
-CombatBox:AddToggle("EnableCrispy", { Text = "Enable", Default = true, Callback = function(v) S.Enabled = v; if not v then Target.Player = nil; pcall(releaseLock) end end })
+CombatBox:AddToggle("EnableCrispy", { Text = "Enable", Default = true, Callback = function(v)
+    S.Enabled = v
+    if not v then Target.Player = nil; pcall(releaseLock) end
+end })
 CombatBox:AddDropdown("AimPartDropdown", { Text = "Aim Part", Values = HitParts, Default = "UpperTorso", Callback = function(v) S.AimPart = v end })
 CombatBox:AddDropdown("SilentAimPartDropdown", { Text = "Silent Aim Part", Values = HitParts, Default = "HumanoidRootPart", Callback = function(v) S.SilentAimPart = v end })
 CombatBox:AddSlider("JumpOffset", { Text = "Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.JumpOffset = v end })
@@ -935,13 +1017,33 @@ CombatBox:AddToggle("SilentToggle", { Text = "Silent Aim", Default = false, Call
 local CamBox = Tabs.Legitbot:AddRightGroupbox("Camlock")
 CamBox:AddToggle("CamlockToggle", { Text = "Enable Camlock", Default = false, Callback = function(v)
     S.Camlock = v
-    if v and not Target.Player then pcall(applyLock) end
-    if not v then pcall(releaseLock) end
+    -- NO auto-pick. If no target is locked, camlock simply does nothing until you lock via H or AutoSelect.
+    if not v then
+        -- only release camera when disabling (keep target if you want to keep silent aim)
+    end
 end })
 CamBox:AddSlider("SmoothSlider", { Text = "Smoothness", Default = 0.15, Min = 0.02, Max = 1, Rounding = 2, Callback = function(v) S.CamSmooth = v end })
 CamBox:AddInput("CamPred", { Default = "0.13", Numeric = true, Text = "Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.13 end })
 CamBox:AddSlider("CamJump", { Text = "Cam Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.CamJump = v end })
-CamBox:AddLabel("Click the H button or press H to lock")
+CamBox:AddToggle("CamWallcheckToggle", { Text = "Wallcheck", Default = false, Callback = function(v) S.CamWallcheck = v end })
+CamBox:AddToggle("CamKnockedToggle", { Text = "Skip Knocked", Default = true, Callback = function(v) S.CamKnocked = v end })
+CamBox:AddSlider("KnockedHPSlider", { Text = "Knocked HP Threshold", Default = 5, Min = 1, Max = 30, Rounding = 0, Callback = function(v) S.KnockedHP = v end })
+
+local TargetAimBox = Tabs.Legitbot:AddLeftGroupbox("Target Aim")
+TargetAimBox:AddDropdown("TargetAimPartDropdown", { Text = "Target Aim Part", Values = HitParts, Default = "HumanoidRootPart", Callback = function(v) S.SilentAimPart = v end })
+TargetAimBox:AddButton({
+    Text = "Lock Target (or press H)",
+    Func = function()
+        pcall(toggleLock)
+        if LockBtn then
+            if Target.Player then
+                LockBtn.ImageColor3 = Color3.fromRGB(120, 255, 120)
+            else
+                LockBtn.ImageColor3 = TN.accent
+            end
+        end
+    end,
+})
 
 local PredBox = Tabs.Legitbot:AddLeftGroupbox("Prediction Sets")
 PredBox:AddToggle("PingSetsToggle", { Text = "Ping Sets", Default = false, Callback = function(v) S.PingSetsEnabled = v end })
@@ -956,6 +1058,7 @@ Rotate360Box:AddToggle("Rotate360Toggle", { Text = "Enable 360", Default = false
 Rotate360Box:AddSlider("Rotate360SpeedSlider", { Text = "Rotate Speed", Default = 10000, Min = 100, Max = 100000, Rounding = 0, Callback = function(v) S.Rotate360Speed = v end })
 
 -- RAGEBOT
+
 local StrafeBox = Tabs.Ragebot:AddLeftGroupbox("Target Strafe")
 StrafeBox:AddToggle("StrafeToggle", { Text = "Enable Strafe", Default = false, Callback = function(v) S.Strafe = v end })
 StrafeBox:AddSlider("StrafeDistSlider", { Text = "Distance", Default = 5, Min = 1, Max = 15, Rounding = 1, Callback = function(v) S.StrafeDist = v end })
@@ -994,7 +1097,7 @@ RunService.Heartbeat:Connect(function()
                 if not HitboxCache[plr] or HitboxCache[plr].hrp ~= hrp then
                     HitboxCache[plr] = { hrp = hrp, original_size = hrp.Size, original_transparency = hrp.Transparency, original_collide = hrp.CanCollide, highlight = nil }
                     local hl = Instance.new("Highlight")
-                    hl.FillColor = Color3.fromRGB(235, 157, 255)
+                    hl.FillColor = TN.accent
                     hl.OutlineColor = Color3.fromRGB(255, 255, 255)
                     hl.FillTransparency = S.HitboxTransparency
                     hl.OutlineTransparency = 0
@@ -1087,6 +1190,7 @@ if LP.Character then BulletTP_Setup(LP.Character) end
 LP.CharacterAdded:Connect(function(char) task.wait(0.5); BulletTP_Setup(char) end)
 
 -- VISUAL
+
 local VisualBox = Tabs.Visual:AddLeftGroupbox("ESP")
 VisualBox:AddToggle("ESPMaster", { Text = "Master Switch", Default = true, Callback = function(v) ESP.visuals_enabled = v end })
 
@@ -1140,6 +1244,7 @@ local StatsBox = Tabs.Visual:AddRightGroupbox("Stats")
 StatsBox:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
 
 -- MISC
+
 local AutoBuyBox = Tabs.Misc:AddLeftGroupbox("Auto Buy")
 AutoBuyBox:AddToggle("AutoFoodToggle", { Text = "Auto Buy Food", Default = false, Callback = function(v) S.AutoFood = v end })
 AutoBuyBox:AddDropdown("AutoFoodDropdown", { Text = "Food Type", Values = { "[Chicken]", "[Burger]", "[Pizza]", "[Taco]", "[Donut]" }, Default = "[Chicken]", Callback = function(v) S.SelectedFood = v end })
@@ -1157,7 +1262,7 @@ local MiscBox = Tabs.Misc:AddLeftGroupbox("Misc")
 MiscBox:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
 MiscBox:AddButton({ Text = "Toggle Menu", Func = function() Library:Toggle() end })
 
--- AUTO BUY
+-- AUTO BUY LOGIC
 local function SafeFireClickDetector(padName)
     if not padName then return false end
     local function findPad()
@@ -1272,7 +1377,7 @@ local LockBtn = inew("ImageButton", {
     BackgroundColor3 = Color3.fromRGB(0, 0, 0),
     BorderSizePixel = 0,
     Image = "rbxassetid://137122449494480",
-    ImageColor3 = Color3.fromRGB(235, 157, 255),
+    ImageColor3 = TN.accent,
     ImageTransparency = 0,
     ScaleType = Enum.ScaleType.Fit,
     Draggable = true,
@@ -1285,7 +1390,7 @@ local function UpdateLockVisual()
     if Target.Player then
         LockBtn.ImageColor3 = Color3.fromRGB(120, 255, 120)
     else
-        LockBtn.ImageColor3 = Color3.fromRGB(235, 157, 255)
+        LockBtn.ImageColor3 = TN.accent
     end
 end
 
@@ -1302,7 +1407,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- MAIN LOOP
+-- MAIN LOOP (throttled autoselect — no camlock auto-pick)
 local lastAutoSelect = 0
 RunService.RenderStepped:Connect(function(dt)
     if S.Enabled and S.AutoSelect and tick() - lastAutoSelect > 0.1 then
@@ -1314,10 +1419,18 @@ RunService.RenderStepped:Connect(function(dt)
                 local hum = plr.Character:FindFirstChildOfClass("Humanoid")
                 local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
                 if hum and hrp and hum.Health > 0 then
-                    local sp, on = Camera:WorldToViewportPoint(hrp.Position)
-                    if on then
-                        local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                        if m < best then best = m; closest = plr end
+                    if not (S.CamKnocked and hum.Health <= (S.KnockedHP or 5)) then
+                        local visible = true
+                        if S.CamWallcheck then
+                            visible = IsVisible(plr.Character, hrp)
+                        end
+                        if visible then
+                            local sp, on = Camera:WorldToViewportPoint(hrp.Position)
+                            if on then
+                                local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                                if m < best then best = m; closest = plr end
+                            end
+                        end
                     end
                 end
             end
@@ -1332,6 +1445,11 @@ RunService.RenderStepped:Connect(function(dt)
                 if S.Camlock then CamlockTarget = hrp end
             end
         end
+    end
+
+    -- AutoSelect should also update camlock target if camlock is on
+    if S.Camlock and Target.HRP and Target.HRP.Parent then
+        CamlockTarget = Target.HRP
     end
 
     local activeHRP = Target.HRP or CamlockTarget
