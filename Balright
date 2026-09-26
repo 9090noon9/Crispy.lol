@@ -1,6 +1,5 @@
 if _G.CRISPY_LOADED then return end
 _G.CRISPY_LOADED = true
-
 pcall(function() if setfpscap then setfpscap(240) end end)
 repeat task.wait() until game:IsLoaded()
 
@@ -46,63 +45,62 @@ pcall(function()
     end
 end)
 
-local HAS_DRAWING = pcall(function()
-    local s = Drawing.new("Square")
-    if s.Remove then s:Remove() end
-end)
+-- ============================================================
+-- PING SETS — if ping is within range, use this prediction
+-- ============================================================
+local PingSets = {
+    { max = 20,  pred = 0.11    },
+    { max = 30,  pred = 0.12    },
+    { max = 40,  pred = 0.126   },
+    { max = 50,  pred = 0.12846 },
+    { max = 60,  pred = 0.1343  },
+    { max = 70,  pred = 0.136354 },
+    { max = 80,  pred = 0.14211 },
+    { max = 90,  pred = 0.146373 },
+    { max = 105, pred = 0.149533 },
+    { max = 120, pred = 0.155   },
+    { max = 140, pred = 0.165   },
+    { max = 160, pred = 0.17    },
+    { max = 170, pred = 0.174   },
+    { max = 180, pred = 0.177   },
+    { max = 190, pred = 0.18474 },
+    { max = 205, pred = 0.209   },
+    { max = 215, pred = 0.24    },
+    { max = 225, pred = 1.4     },
+    { max = 9999, pred = 0.273  },
+}
+
+-- ============================================================
+-- DISTANCE SETS — if target distance is within range, multiply prediction
+-- ============================================================
+local DistanceSets = {
+    { maxDist = 50,   mult = 0.6 },
+    { maxDist = 100,  mult = 0.8 },
+    { maxDist = 200,  mult = 1.0 },
+    { maxDist = 400,  mult = 1.3 },
+    { maxDist = 700,  mult = 1.7 },
+    { maxDist = 9999, mult = 2.2 },
+}
 
 local S = {
-    Enabled = true,
-    JumpOffset = 0,
-
-    -- CAMS / LOCK
-    Camlock = false,
-    CamSmooth = 0.927,
-    CamPred = 0.273,
-    CamJump = 0,
-    LockMethod = "Mouse",     -- Mouse | Camera
-    AimPart = "UpperTorso",
-    AutoPrediction = false,
-    AntiGround = false,
-
-    -- SILENT
-    Silent = false,
-    SilentPred = 0.1355,
-    Hitchance = 100,
-    AirHitchance = 100,
-    SilentAutoPred = true,
-    SilentAntiGround = true,
-    SilentAimPart = "HumanoidRootPart",
-    SilentBone = "Head",
-
-    -- AUTO AIR
-    AutoAir = false,
-    AutoAirPart = "LowerTorso",
-    AutoAirPred = 0.1,
-    AutoAirSmooth = 0.1,
-
-    -- 360
-    Rotate360 = false,
-    Rotate360Speed = 10000,
-
-    -- PREDICTION VALUES (from trust)
-    Prediction = 0.273,
-    PredictionX = 0.1,
-    PredictionY = 0.1,
-
-    -- VISUAL
+    Enabled = true, JumpOffset = 0,
+    Camlock = false, CamSmooth = 0.927, CamPred = 0.273, CamJump = 0,
+    LockMethod = "Mouse", AimPart = "UpperTorso",
+    AutoPrediction = false, AntiGround = false,
+    PingSetsEnabled = false,
+    DistSetsEnabled = false,
+    Silent = false, SilentPred = 0.1355, Hitchance = 100, AirHitchance = 100,
+    SilentAutoPred = true, SilentAntiGround = true, SilentAimPart = "HumanoidRootPart",
+    AutoAir = false, AutoAirPart = "LowerTorso", AutoAirPred = 0.1, AutoAirSmooth = 0.1,
+    Rotate360 = false, Rotate360Speed = 10000,
     VisualEnabled = true,
     HitSoundEnabled = true, SelectedHitSound = "Skeet",
     HitEffectEnabled = true, SelectedHitEffect = "Crescent Slash",
     TargetStatsEnabled = true,
-
-    -- RAGEBOT
     HitboxEnabled = false, HitboxSize = 10, HitboxTransparency = 0.7,
     BulletTPEnabled = false, BulletTPDistance = 15,
     Strafe = false, StrafeDist = 5, StrafeSpeed = 6, StrafeHeight = 2,
     ViewTarget = false,
-
-    -- MISC
     AutoFood = false, SelectedFood = "[Chicken]",
     AutoArmor = false, SelectedArmor = "[Medium Armor]",
     MacroEnabled = false, MacroMode = "Legit",
@@ -116,6 +114,12 @@ local CamlockTarget = nil
 local CurrentTool   = nil
 local StrafeAngle   = 0
 local AirDebounce   = false
+
+local HookCache = {
+    active = false,
+    predPos = Vector3.new(0, 0, 0),
+    targetHRP = nil,
+}
 
 local HitParts = {
     "Head", "Neck", "UpperTorso", "LowerTorso",
@@ -132,46 +136,63 @@ local function inew(class, props)
     return o
 end
 
--- PING-BASED PREDICTION (from trust.lua)
-local function GetPingPrediction()
+local function GetCurrentPing()
     local ping = 0
     pcall(function()
         local pingstr = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValueString()
         local split = string.split(pingstr, "(")
         ping = tonumber(split[1]) or 0
     end)
-    if ping < 20 then return 0.11
-    elseif ping < 30 then return 0.12
-    elseif ping < 40 then return 0.126
-    elseif ping < 50 then return 0.12846
-    elseif ping < 60 then return 0.1343
-    elseif ping < 70 then return 0.136354
-    elseif ping < 80 then return 0.14211
-    elseif ping < 90 then return 0.146373
-    elseif ping < 105 then return 0.149533
-    elseif ping < 120 then return 0.155
-    elseif ping < 140 then return 0.165
-    elseif ping < 160 then return 0.17
-    elseif ping < 170 then return 0.174
-    elseif ping < 180 then return 0.177
-    elseif ping < 190 then return 0.18474
-    elseif ping < 205 then return 0.209
-    elseif ping < 215 then return 0.24
-    elseif ping < 225 then return 1.4
-    else return 0.273 end
+    return ping
 end
 
-local function GetPredictionValue()
-    if S.AutoPrediction then
-        return GetPingPrediction()
+-- Returns the ping-set prediction for current ping
+local function GetPingSetPrediction()
+    local ping = GetCurrentPing()
+    for _, set in ipairs(PingSets) do
+        if ping < set.max then
+            return set.pred
+        end
     end
-    return S.CamPred
+    return 0.273
 end
 
-local function GetTargetPartByAim(plr, aimPartName)
+-- Returns the distance multiplier for the given distance
+local function GetDistanceMultiplier(dist)
+    for _, set in ipairs(DistanceSets) do
+        if dist < set.maxDist then
+            return set.mult
+        end
+    end
+    return 1.0
+end
+
+-- Get final prediction for a given target part
+local function GetPredictionFor(targetPart)
+    local pred = S.CamPred
+
+    if S.PingSetsEnabled then
+        pred = GetPingSetPrediction()
+    elseif S.AutoPrediction then
+        pred = GetPingSetPrediction()
+    end
+
+    if S.DistSetsEnabled and targetPart then
+        local myChar = LP.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if myHRP then
+            local dist = (myHRP.Position - targetPart.Position).Magnitude
+            pred = pred * GetDistanceMultiplier(dist)
+        end
+    end
+
+    return math.clamp(pred, 0, 3)
+end
+
+local function GetPartByName(plr, name)
     if not plr or not plr.Character then return nil end
     local char = plr.Character
-    if aimPartName == "Closest Part" then
+    if name == "Closest Part" then
         local cam = Workspace.CurrentCamera
         if not cam then return char:FindFirstChild("HumanoidRootPart") end
         local center = cam.ViewportSize / 2
@@ -187,31 +208,9 @@ local function GetTargetPartByAim(plr, aimPartName)
         end
         return bestPart or char:FindFirstChild("HumanoidRootPart")
     end
-    return char:FindFirstChild(aimPartName) or char:FindFirstChild("HumanoidRootPart")
+    return char:FindFirstChild(name) or char:FindFirstChild("HumanoidRootPart")
 end
 
-local function GetTargetPart(plr)
-    return GetTargetPartByAim(plr, S.AimPart)
-end
-
-local function GetSilentPart(plr)
-    return GetTargetPartByAim(plr, S.SilentAimPart)
-end
-
-local function GetDynamicPrediction(targetPart)
-    local pred = GetPredictionValue()
-    if S.Strafe and targetPart then
-        local myChar = LP.Character
-        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        if myHRP then
-            local dist = (myHRP.Position - targetPart.Position).Magnitude
-            pred = pred * (1 + dist / 1000)
-        end
-    end
-    return math.clamp(pred, 0, 2)
-end
-
--- HITSOUNDS
 local Hitsounds = {
     Bameware = "rbxassetid://3124331820",
     Bell = "rbxassetid://6534947240",
@@ -288,7 +287,6 @@ local function HitEffect(position)
         e1:Emit(50)
         e2:Emit(50)
     end
-
     task.delay(2, function() if part then part:Destroy() end end)
 end
 
@@ -318,17 +316,9 @@ local ESP = {
         name = { enabled = false, color = Color3.fromRGB(255, 215, 0), outline_color = Color3.fromRGB(0, 0, 0), size = 14 },
         distance = { enabled = false, color = Color3.fromRGB(255, 180, 80), outline_color = Color3.fromRGB(0, 0, 0), size = 12 },
         tool = { enabled = false, color = Color3.fromRGB(255, 215, 0), outline_color = Color3.fromRGB(0, 0, 0), size = 11 },
-        display_name = { enabled = false, color = Color3.fromRGB(255, 215, 0), outline_color = Color3.fromRGB(0, 0, 0), size = 13 },
     },
-    chams = {
-        enabled = false, fill_color = Color3.fromRGB(255, 140, 0), outline_color = Color3.fromRGB(255, 215, 0),
-        fill_transparency = 0.5, outline_transparency = 0,
-    },
-    fov = {
-        enabled = false, radius = 150,
-        color = Color3.fromRGB(255, 140, 0), outline_color = Color3.fromRGB(255, 215, 0),
-        thickness = 1, transparency = 0.4, filled = false,
-    },
+    chams = { enabled = false, fill_color = Color3.fromRGB(255, 140, 0), outline_color = Color3.fromRGB(255, 215, 0), fill_transparency = 0.5, outline_transparency = 0 },
+    fov = { enabled = false, radius = 150, color = Color3.fromRGB(255, 140, 0), outline_color = Color3.fromRGB(255, 215, 0), thickness = 1, transparency = 0.4, filled = false },
     fonts = { labels = Enum.Font.Gotham },
 }
 local esp
@@ -405,18 +395,7 @@ do
         if not player then return end
         if self.cache[player] and self.cache[player].box and self.cache[player].box.full then return end
 
-        local cache = { box = {}, bars = {}, text = {}, chams = {}, parts = {}, skeleton_frame_skip = 0 }
-
-        if HAS_DRAWING then
-            cache.box.full = { square = Drawing.new("Square"), outline = Drawing.new("Square") }
-            cache.skeleton = {}
-            for i = 1, #self.skeleton_conns do
-                cache.skeleton[i] = { line = Drawing.new("Line"), outline = Drawing.new("Line") }
-            end
-        else
-            cache.box.full = { square = nil, outline = nil }
-            cache.skeleton = {}
-        end
+        local cache = { box = {}, bars = {}, text = {}, chams = {}, parts = {}, skeleton = {} }
 
         local box_gui = inew("ScreenGui", { Name = player.Name .. "_BoxGui", ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = self.vars.core_gui })
         local box_frame = inew("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = ESP.box.transparency, BorderSizePixel = 0, Parent = box_gui })
@@ -425,17 +404,35 @@ do
             Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, ESP.box.gradient.top_color), ColorSequenceKeypoint.new(1, ESP.box.gradient.bottom_color) }),
             Rotation = ESP.box.gradient.rotation,
         })
-        cache.box.full.gui = box_gui
-        cache.box.full.frame = box_frame
+        cache.box.full = { gui = box_gui, frame = box_frame }
+
+        local skel_gui = inew("ScreenGui", { Name = player.Name .. "_Skel", ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = self.vars.core_gui })
+        for i = 1, #self.skeleton_conns do
+            local outline_frame = inew("Frame", {
+                Parent = skel_gui,
+                BackgroundColor3 = ESP.skeleton.outline.color,
+                BorderSizePixel = 0,
+                Visible = false,
+                Size = UDim2.new(0, 0, 0, 3),
+                AnchorPoint = Vector2.new(0, 0.5),
+            })
+            local line_frame = inew("Frame", {
+                Parent = skel_gui,
+                BackgroundColor3 = ESP.skeleton.color,
+                BorderSizePixel = 0,
+                Visible = false,
+                Size = UDim2.new(0, 0, 0, 1),
+                AnchorPoint = Vector2.new(0, 0.5),
+            })
+            cache.skeleton[i] = { line = line_frame, outline = outline_frame }
+        end
 
         local sg = inew("ScreenGui", { Parent = self.vars.core_gui, Name = player.Name .. "_S" })
         local ng = inew("ScreenGui", { Parent = self.vars.core_gui, Name = player.Name .. "_N" })
         local tg = inew("ScreenGui", { Parent = self.vars.core_gui, Name = player.Name .. "_T" })
-        local dg = inew("ScreenGui", { Parent = self.vars.core_gui, Name = player.Name .. "_D" })
         cache.text.studs = self.funcs.make_text(sg)
         cache.text.tool = self.funcs.make_text(tg)
         cache.text.name = self.funcs.make_text(ng)
-        cache.text.display_name = self.funcs.make_text(dg)
 
         local h_gui = inew("ScreenGui", { Name = player.Name .. "_H", ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = self.vars.core_gui })
         local h_out = inew("Frame", { BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, Parent = h_gui })
@@ -457,20 +454,13 @@ do
     self.funcs.clear = function(player)
         local c = self.cache[player]
         if not c then return end
-
-        if c.box and c.box.full then
-            if c.box.full.square then c.box.full.square.Visible = false; if c.box.full.square.Remove then c.box.full.square:Remove() end end
-            if c.box.full.outline then c.box.full.outline.Visible = false; if c.box.full.outline.Remove then c.box.full.outline:Remove() end end
-            if c.box.full.gui then c.box.full.gui:Destroy() end
-        end
-
+        if c.box and c.box.full and c.box.full.gui then c.box.full.gui:Destroy() end
         if c.skeleton then
-            for _, v in pairs(c.skeleton) do
-                if v.line then v.line.Visible = false; if v.line.Remove then v.line:Remove() end end
-                if v.outline then v.outline.Visible = false; if v.outline.Remove then v.outline:Remove() end end
+            for _, s in pairs(c.skeleton) do
+                if s.line and s.line.Parent then s.line:Destroy() end
+                if s.outline and s.outline.Parent then s.outline:Destroy() end
             end
         end
-
         if c.text then for _, v in pairs(c.text) do if v then v.Visible = false end end end
         if c.bars then
             for _, b in pairs(c.bars) do
@@ -483,20 +473,16 @@ do
 
     self.funcs.hide_all = function(c)
         local bf = c.box and c.box.full
-        if bf then
-            if bf.square then bf.square.Visible = false end
-            if bf.outline then bf.outline.Visible = false end
-            if bf.frame then bf.frame.Visible = false end
-        end
+        if bf and bf.frame then bf.frame.Visible = false end
         local h = c.bars and c.bars.health
         if h then h.outline.Visible = false; h.frame.Visible = false; if h.text then h.text.Visible = false end end
         local a = c.bars and c.bars.armor
         if a then a.outline.Visible = false; a.frame.Visible = false; if a.text then a.text.Visible = false end end
         if c.text then for _, v in pairs(c.text) do if v then v.Visible = false end end end
         if c.skeleton then
-            for _, v in pairs(c.skeleton) do
-                if v.line then v.line.Visible = false end
-                if v.outline then v.outline.Visible = false end
+            for _, s in pairs(c.skeleton) do
+                if s.line then s.line.Visible = false end
+                if s.outline then s.outline.Visible = false end
             end
         end
     end
@@ -526,40 +512,27 @@ do
 
     self.funcs.update_box = function(player, pos, size, cache)
         local full = cache.box and cache.box.full
-        if not full then return end
-        local square, outline, frame = full.square, full.outline, full.frame
+        if not full or not full.frame then return end
         if not ESP.visuals_enabled or not ESP.box.enabled then
-            if square then square.Visible = false end
-            if outline then outline.Visible = false end
-            if frame then frame.Visible = false end
+            full.frame.Visible = false
             return
         end
-        if outline then
-            outline.Visible = true
-            outline.Position = pos - Vector2.new(1, 1)
-            outline.Size = size + Vector2.new(2, 2)
-            outline.Color = ESP.box.outline_color
-            outline.Thickness = 1
-            outline.Filled = false
-        end
-        if square then
-            square.Visible = true
-            square.Position = pos
-            square.Size = size
-            square.Color = ESP.box.color
-            square.Thickness = ESP.box.filled and 0 or ESP.box.thickness
-            square.Filled = ESP.box.filled
-            square.Transparency = ESP.box.transparency
-        end
-        if frame then
-            if ESP.box.filled then
-                frame.Visible = true
-                frame.Position = UDim2.new(0, pos.X, 0, pos.Y - self.gui_inset.Y)
-                frame.Size = UDim2.new(0, size.X, 0, size.Y)
-                frame.BackgroundTransparency = ESP.box.transparency
-            else
-                frame.Visible = false
+        full.frame.Visible = true
+        full.frame.Position = UDim2.new(0, pos.X - 1, 0, pos.Y - self.gui_inset.Y - 1)
+        full.frame.Size = UDim2.new(0, size.X + 2, 0, size.Y + 2)
+        full.frame.BackgroundTransparency = ESP.box.transparency
+        if not ESP.box.filled then
+            full.frame.BackgroundTransparency = 1
+            local stroke = full.frame:FindFirstChildOfClass("UIStroke")
+            if not stroke then
+                stroke = inew("UIStroke", { Parent = full.frame, Thickness = ESP.box.thickness })
             end
+            stroke.Color = ESP.box.color
+            stroke.Transparency = 0
+            stroke.Thickness = ESP.box.thickness
+        else
+            local stroke = full.frame:FindFirstChildOfClass("UIStroke")
+            if stroke then stroke:Destroy() end
         end
     end
 
@@ -639,8 +612,6 @@ do
             return
         end
         if not cache.parts then return end
-        cache.skeleton_frame_skip = (cache.skeleton_frame_skip or 0) + 1
-        if cache.skeleton_frame_skip % 2 ~= 0 then return end
         local hum = cache.humanoid
         if not hum or hum.Health <= 0 then
             for _, s in pairs(cache.skeleton) do
@@ -649,6 +620,7 @@ do
             end
             return
         end
+        local gi = self.gui_inset
         for i, conn in ipairs(self.skeleton_conns) do
             local s = cache.skeleton[i]
             if s and s.line then
@@ -657,19 +629,25 @@ do
                     local fpos, fon = self.funcs.to_screen(fp.Position)
                     local tpos, ton = self.funcs.to_screen(tp.Position)
                     if fpos and tpos and fon and ton then
+                        local dx = tpos.X - fpos.X
+                        local dy = tpos.Y - fpos.Y
+                        local length = math.sqrt(dx * dx + dy * dy)
+                        local angle = math.deg(math.atan2(dy, dx))
+
                         s.line.Visible = true
-                        s.line.From = fpos; s.line.To = tpos
-                        s.line.Color = ESP.skeleton.color
-                        s.line.Thickness = ESP.skeleton.thickness
-                        s.line.Transparency = ESP.skeleton.transparency
-                        if s.outline then
-                            if ESP.skeleton.outline.enabled then
-                                s.outline.Visible = true
-                                s.outline.From = fpos; s.outline.To = tpos
-                                s.outline.Color = ESP.skeleton.outline.color
-                                s.outline.Thickness = ESP.skeleton.outline.thickness
-                                s.outline.Transparency = 0
-                            else s.outline.Visible = false end
+                        s.line.Size = UDim2.new(0, length, 0, 1)
+                        s.line.Position = UDim2.new(0, fpos.X, 0, fpos.Y - gi.Y)
+                        s.line.Rotation = angle
+                        s.line.BackgroundColor3 = ESP.skeleton.color
+
+                        if s.outline and ESP.skeleton.outline.enabled then
+                            s.outline.Visible = true
+                            s.outline.Size = UDim2.new(0, length, 0, 3)
+                            s.outline.Position = UDim2.new(0, fpos.X, 0, fpos.Y - gi.Y)
+                            s.outline.Rotation = angle
+                            s.outline.BackgroundColor3 = ESP.skeleton.outline.color
+                        elseif s.outline then
+                            s.outline.Visible = false
                         end
                     else
                         s.line.Visible = false
@@ -852,10 +830,8 @@ if HAS_DRAWING then
             FovOutline.Visible = false
             return
         end
-
         local m = UIS:GetMouseLocation()
         local p = Vector2.new(m.X, m.Y)
-
         FovCircle.Position = p
         FovCircle.Radius = ESP.fov.radius
         FovCircle.Color = ESP.fov.color
@@ -863,7 +839,6 @@ if HAS_DRAWING then
         FovCircle.Transparency = 1 - ESP.fov.transparency
         FovCircle.Filled = ESP.fov.filled
         FovCircle.Visible = true
-
         FovOutline.Position = p
         FovOutline.Radius = ESP.fov.radius
         FovOutline.Color = ESP.fov.outline_color
@@ -935,14 +910,12 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- CAMLOCK
 local DEFAULT_CAMERA_TYPE = Camera.CameraType
 
 local function applyLock()
     if Target.Player then return end
     local closest, best = nil, math.huge
     local center = Camera.ViewportSize / 2
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LP and plr.Character then
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
@@ -956,11 +929,9 @@ local function applyLock()
             end
         end
     end
-
     if not closest or not closest.Character then return end
     local hrp = closest.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     Target.Player = closest
     Target.HRP = hrp
     CurrentTarget.Player = closest
@@ -987,9 +958,8 @@ local function toggleLock()
     end)
 end
 
--- AUTO AIR HELPER: pick aim part based on target state (from trust.lua)
 local function GetAutoAirPart(targetChar)
-    if not targetChar then return "LowerTorso" end
+    if not targetChar then return S.AutoAirPart end
     local hum = targetChar:FindFirstChildOfClass("Humanoid")
     if not hum then return S.AutoAirPart end
     local state = hum:GetState()
@@ -999,138 +969,137 @@ local function GetAutoAirPart(targetChar)
     return S.AutoAirPart
 end
 
--- CAMS LOCK BINDING
+-- ============================================================
+-- HOOK CACHE UPDATE LOOP — this is what stops the crash.
+-- Runs every frame, computes prediction ONCE, hook just reads it.
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    local tp = Target.Player
+    if not S.Enabled or not tp or not tp.Character then
+        HookCache.active = false
+        return
+    end
+    local char = tp.Character
+    if not char.Parent then
+        HookCache.active = false
+        return
+    end
+    local hrp = Target.HRP
+    if not hrp or not hrp.Parent then
+        HookCache.active = false
+        return
+    end
+    local part = char:FindFirstChild(S.SilentAimPart) or hrp
+    if not part or not part.Parent then
+        HookCache.active = false
+        return
+    end
+    local pred = GetPredictionFor(part)
+    HookCache.predPos = part.Position + part.Velocity * pred + Vector3.new(0, S.JumpOffset, 0)
+    HookCache.targetHRP = hrp
+    HookCache.active = true
+end)
+
+-- ============================================================
+-- CAMLOCK BIND (crash-proof — full pcall, no function calls that recurse)
+-- ============================================================
 RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 1, function(dt)
     pcall(function()
         local target = CamlockTarget
-        if S.Camlock and target and target.Parent and Target.Player and Target.Player.Character then
-
-            -- pick aim part
-            local aimPartName = S.AimPart
-            if S.AutoAir and Target.Player.Character then
-                aimPartName = GetAutoAirPart(Target.Player.Character)
+        local tp = Target.Player
+        if not S.Camlock or not target or not target.Parent or not tp or not tp.Character then
+            if Camera.CameraType == Enum.CameraType.Scriptable and not S.Camlock then
+                Camera.CameraType = DEFAULT_CAMERA_TYPE
             end
+            return
+        end
+        local char = tp.Character
+        if not char.Parent then return end
+        local aimPartName = S.AimPart
+        if S.AutoAir then aimPartName = GetAutoAirPart(char) end
+        local part = char:FindFirstChild(aimPartName) or target
+        if not part or not part.Parent then return end
 
-            local part = Target.Player.Character:FindFirstChild(aimPartName)
-            if not part then part = target end
+        local pred = GetPredictionFor(part)
+        local predictedPos = part.Position + part.Velocity * pred
 
-            -- get prediction value (auto-ping or manual)
-            local pred = GetPredictionValue()
-
-            -- apply anti-ground if enabled
-            local predictedPos
-            if S.AntiGround then
-                local vel = part.Velocity
-                local grounded = false
-                pcall(function()
-                    if LP.Character and LP.Character:FindFirstChildOfClass("Humanoid") then
-                        grounded = LP.Character.Humanoid.FloorMaterial ~= Enum.Material.Air
-                    end
-                end)
-                if grounded then
-                    predictedPos = part.Position + Vector3.new(vel.X * pred, math.max(vel.Y * pred, 0), vel.Z * pred)
-                else
-                    predictedPos = part.Position + vel * pred
-                end
-            else
-                predictedPos = part.Position + part.Velocity * pred
+        if S.AntiGround then
+            local myChar = LP.Character
+            local grounded = false
+            if myChar and myChar:FindFirstChildOfClass("Humanoid") then
+                grounded = myChar.Humanoid.FloorMaterial ~= Enum.Material.Air
             end
-
-            if Camera.CameraType ~= Enum.CameraType.Scriptable then
-                Camera.CameraType = Enum.CameraType.Scriptable
+            if grounded then
+                predictedPos = part.Position + Vector3.new(part.Velocity.X * pred, math.max(part.Velocity.Y * pred, 0), part.Velocity.Z * pred)
             end
+        end
 
-            -- mouse vs camera lock method
-            if S.LockMethod == "Mouse" then
-                local mousePos = UIS:GetMouseLocation()
-                local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
-                local alpha = math.clamp(1 - S.CamSmooth, 0.01, 1)
-                Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, alpha)
-            else
-                local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
-                Camera.CFrame = targetCFrame
-            end
-        elseif not S.Camlock and Camera.CameraType == Enum.CameraType.Scriptable then
-            Camera.CameraType = DEFAULT_CAMERA_TYPE
+        if Camera.CameraType ~= Enum.CameraType.Scriptable then
+            Camera.CameraType = Enum.CameraType.Scriptable
+        end
+        local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+        if S.LockMethod == "Mouse" then
+            local alpha = math.clamp(1 - S.CamSmooth, 0.01, 1)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, alpha)
+        else
+            Camera.CFrame = targetCFrame
         end
     end)
 end)
 
 -- 360 ROTATION
-local Rotate360Angle = 0
 RunService.RenderStepped:Connect(function(dt)
     if not S.Rotate360 then return end
-    Rotate360Angle = Rotate360Angle + S.Rotate360Speed * dt
-    if Rotate360Angle >= 360 then Rotate360Angle = Rotate360Angle - 360 end
     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
 end)
 
--- HOOKS
+-- ============================================================
+-- HOOKS — no function calls inside, only cached reads.
+-- This is what stops the crash on lock.
+-- ============================================================
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
-    if checkcaller() then return oldnc(self_, ...) end
-
+    if checkcaller() or not HookCache.active then
+        return oldnc(self_, ...)
+    end
     local method = getnamecallmethod()
+    if method ~= "Raycast" and not string.find(method, "FindPartOnRay", 1, true) then
+        return oldnc(self_, ...)
+    end
     local args = { ... }
-    local activeHRP = Target.HRP or CamlockTarget
-
-    if S.Enabled and activeHRP and activeHRP.Parent and Target.Player and Target.Player.Character then
-        local hitPart = GetTargetPart(Target.Player)
-
-        if method == "Raycast" and self_ == Workspace and #args >= 3 and hitPart then
-            local pred = hitPart.Position
-                + hitPart.Velocity * GetDynamicPrediction(hitPart)
-                + Vector3.new(0, S.JumpOffset, 0)
-            local dir = pred - args[1]
+    if method == "Raycast" and self_ == Workspace and #args >= 3 then
+        local dir = HookCache.predPos - args[1]
+        if dir.Magnitude > 0.001 then
             args[2] = dir.Unit * 1000
             return oldnc(self_, table.unpack(args))
         end
-
-        if string.find(method, "FindPartOnRay", 1, true) and typeof(args[1]) == "Ray" and hitPart then
-            local pred = hitPart.Position
-                + hitPart.Velocity * GetDynamicPrediction(hitPart)
-                + Vector3.new(0, S.JumpOffset, 0)
-            local dir = pred - args[1].Origin
+    elseif typeof(args[1]) == "Ray" then
+        local dir = HookCache.predPos - args[1].Origin
+        if dir.Magnitude > 0.001 then
             args[1] = Ray.new(args[1].Origin, dir.Unit * 1000)
             return oldnc(self_, table.unpack(args))
         end
     end
-
     return oldnc(self_, ...)
 end))
 
 local oldidx
 oldidx = hookmetamethod(game, "__index", newcclosure(function(self_, key)
     if checkcaller() then return oldidx(self_, key) end
-
-    local activeHRP = Target.HRP or CamlockTarget
-
-    if S.Enabled and S.Silent and self_ == Mouse and activeHRP and activeHRP.Parent and Target.Player and Target.Player.Character then
-        if key == "Hit" then
-            local part = GetSilentPart(Target.Player) or activeHRP
-            return CFrame.new(
-                part.Position
-                + part.Velocity * GetDynamicPrediction(part)
-                + Vector3.new(0, S.JumpOffset, 0)
-            )
-        elseif key == "Target" then
-            return activeHRP
-        end
+    if not S.Silent or not HookCache.active then return oldidx(self_, key) end
+    if self_ ~= Mouse then return oldidx(self_, key) end
+    if key == "Hit" then
+        return CFrame.new(HookCache.predPos)
+    elseif key == "Target" then
+        return HookCache.targetHRP
     end
-
     return oldidx(self_, key)
 end))
 
--- TOOL TRACKING
 local function TrackTool(char)
-    char.ChildAdded:Connect(function(c)
-        if c:IsA("Tool") then CurrentTool = c.Name end
-    end)
-    char.ChildRemoved:Connect(function(c)
-        if c:IsA("Tool") then CurrentTool = nil end
-    end)
+    char.ChildAdded:Connect(function(c) if c:IsA("Tool") then CurrentTool = c.Name end end)
+    char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then CurrentTool = nil end end)
 end
-
 if LP.Character then TrackTool(LP.Character) end
 LP.CharacterAdded:Connect(TrackTool)
 
@@ -1147,16 +1116,7 @@ local Tabs = {
 -- LEGITBOT
 
 local CombatBox = Tabs.Legitbot:AddLeftGroupbox("Aim")
-
-CombatBox:AddToggle("EnableCrispy", {
-    Text = "Enable",
-    Default = true,
-    Callback = function(v)
-        S.Enabled = v
-        if not v then Target.Player = nil; pcall(releaseLock) end
-    end,
-})
-
+CombatBox:AddToggle("EnableCrispy", { Text = "Enable", Default = true, Callback = function(v) S.Enabled = v; if not v then Target.Player = nil; pcall(releaseLock) end end })
 CombatBox:AddDropdown("AimPartDropdown", { Text = "Aim Part", Values = HitParts, Default = "UpperTorso", Callback = function(v) S.AimPart = v end })
 CombatBox:AddDropdown("SilentAimPartDropdown", { Text = "Silent Aim Part", Values = HitParts, Default = "HumanoidRootPart", Callback = function(v) S.SilentAimPart = v end })
 CombatBox:AddSlider("JumpOffset", { Text = "Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.JumpOffset = v end })
@@ -1166,31 +1126,23 @@ CombatBox:AddSlider("Hitchance", { Text = "Hitchance", Default = 100, Min = 1, M
 CombatBox:AddSlider("AirHitchance", { Text = "Air Hitchance", Default = 100, Min = 1, Max = 100, Rounding = 0, Suffix = "%", Callback = function(v) S.AirHitchance = v end })
 
 local CamBox = Tabs.Legitbot:AddRightGroupbox("Camlock")
-
-CamBox:AddToggle("CamlockToggle", {
-    Text = "Enable Camlock",
-    Default = false,
-    Callback = function(v)
-        S.Camlock = v
-        if not v then CamlockTarget = nil; Camera.CameraType = DEFAULT_CAMERA_TYPE end
-    end,
-})
-
+CamBox:AddToggle("CamlockToggle", { Text = "Enable Camlock", Default = false, Callback = function(v) S.Camlock = v; if not v then CamlockTarget = nil; Camera.CameraType = DEFAULT_CAMERA_TYPE end end })
 CamBox:AddDropdown("LockMethodDropdown", { Text = "Lock Method", Values = { "Mouse", "Camera" }, Default = "Mouse", Callback = function(v) S.LockMethod = v end })
 CamBox:AddSlider("SmoothSlider", { Text = "Smoothness", Default = 0.927, Min = 0.01, Max = 1, Rounding = 3, Callback = function(v) S.CamSmooth = v end })
-CamBox:AddInput("CamPred", { Default = "0.273", Numeric = true, Text = "Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.273 end })
-CamBox:AddInput("PredX", { Default = "0.1", Numeric = true, Text = "Prediction X", Callback = function(v) S.PredictionX = tonumber(v) or 0.1 end })
-CamBox:AddInput("PredY", { Default = "0.1", Numeric = true, Text = "Prediction Y", Callback = function(v) S.PredictionY = tonumber(v) or 0.1 end })
+CamBox:AddInput("CamPred", { Default = "0.273", Numeric = true, Text = "Base Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.273 end })
 CamBox:AddSlider("CamJump", { Text = "Cam Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.CamJump = v end })
-CamBox:AddToggle("AutoPredToggle", { Text = "Auto Prediction (Ping)", Default = false, Callback = function(v) S.AutoPrediction = v end })
 CamBox:AddToggle("AntiGroundToggle", { Text = "Anti Ground", Default = false, Callback = function(v) S.AntiGround = v end })
 
-local AutoAirBox = Tabs.Legitbot:AddLeftGroupbox("Auto Air")
+local PredBox = Tabs.Legitbot:AddLeftGroupbox("Prediction")
+PredBox:AddToggle("PingSetsToggle", { Text = "Ping Sets", Default = false, Callback = function(v) S.PingSetsEnabled = v end })
+PredBox:AddToggle("DistSetsToggle", { Text = "Distance Sets", Default = false, Callback = function(v) S.DistSetsEnabled = v end })
+PredBox:AddLabel("Edit values in the file (top of script)")
+PredBox:AddLabel("Ping sets: under 60ms = 0.1343, under 120 = 0.155, etc")
+PredBox:AddLabel("Distance: under 50 studs = 0.6x, over 700 = 2.2x")
 
+local AutoAirBox = Tabs.Legitbot:AddLeftGroupbox("Auto Air")
 AutoAirBox:AddToggle("AutoAirToggle", { Text = "Enable Auto Air", Default = false, Callback = function(v) S.AutoAir = v end })
 AutoAirBox:AddDropdown("AutoAirPartDropdown", { Text = "Ground Aim Part", Values = HitParts, Default = "LowerTorso", Callback = function(v) S.AutoAirPart = v end })
-AutoAirBox:AddInput("AutoAirPredInput", { Default = "0.1", Numeric = true, Text = "Air Prediction", Callback = function(v) S.AutoAirPred = tonumber(v) or 0.1 end })
-AutoAirBox:AddInput("AutoAirSmoothInput", { Default = "0.1", Numeric = true, Text = "Air Smoothness", Callback = function(v) S.AutoAirSmooth = tonumber(v) or 0.1 end })
 
 local Rotate360Box = Tabs.Legitbot:AddRightGroupbox("360 Rotation")
 Rotate360Box:AddToggle("Rotate360Toggle", { Text = "Enable 360", Default = false, Callback = function(v) S.Rotate360 = v end })
@@ -1263,7 +1215,6 @@ end)
 
 -- BULLET TP
 local bulletTP_toolConn, bulletTP_addConn
-
 local function BulletTP_GetTarget()
     local closest, shortest = nil, math.huge
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
@@ -1330,12 +1281,8 @@ local function BulletTP_Setup(character)
         if c:IsA("Tool") then onTool(c) end
     end)
 end
-
 if LP.Character then BulletTP_Setup(LP.Character) end
-LP.CharacterAdded:Connect(function(char)
-    task.wait(0.5)
-    BulletTP_Setup(char)
-end)
+LP.CharacterAdded:Connect(function(char) task.wait(0.5); BulletTP_Setup(char) end)
 
 -- VISUAL
 
@@ -1344,45 +1291,35 @@ VisualBox:AddToggle("ESPMaster", { Text = "Master Switch", Default = true, Callb
 
 local BoxToggle = VisualBox:AddToggle("ESPBox", { Text = "Box", Default = false, Callback = function(v) ESP.box.enabled = v end })
 BoxToggle:AddColorPicker("BoxColor", { Default = ESP.box.color, Title = "Box Color", Callback = function(c) ESP.box.color = c end })
-BoxToggle:AddColorPicker("BoxOutline", { Default = ESP.box.outline_color, Title = "Outline Color", Callback = function(c) ESP.box.outline_color = c end })
 BoxToggle:AddColorPicker("BoxGradTop", { Default = ESP.box.gradient.top_color, Title = "Gradient Top", Callback = function(c) ESP.box.gradient.top_color = c end })
 BoxToggle:AddColorPicker("BoxGradBottom", { Default = ESP.box.gradient.bottom_color, Title = "Gradient Bottom", Callback = function(c) ESP.box.gradient.bottom_color = c end })
 VisualBox:AddToggle("BoxFilled", { Text = "Box Filled", Default = false, Callback = function(v) ESP.box.filled = v end })
 VisualBox:AddSlider("BoxTransparency", { Text = "Box Transparency", Default = 0.6, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.box.transparency = v end })
 VisualBox:AddSlider("BoxThickness", { Text = "Box Thickness", Default = 1.5, Min = 0.5, Max = 5, Rounding = 1, Callback = function(v) ESP.box.thickness = v end })
-VisualBox:AddSlider("BoxGradRotSpeed", { Text = "Gradient Rot Speed", Default = 9, Min = -20, Max = 20, Rounding = 1, Callback = function(v) ESP.box.gradient.rotation_speed = v end })
 
 local SkelToggle = VisualBox:AddToggle("ESPSkeleton", { Text = "Skeleton", Default = false, Callback = function(v) ESP.skeleton.enabled = v end })
 SkelToggle:AddColorPicker("SkelColor", { Default = ESP.skeleton.color, Title = "Skeleton Color", Callback = function(c) ESP.skeleton.color = c end })
 VisualBox:AddSlider("SkelThickness", { Text = "Skeleton Thickness", Default = 1.2, Min = 0.5, Max = 5, Rounding = 1, Callback = function(v) ESP.skeleton.thickness = v end })
-VisualBox:AddSlider("SkelTransparency", { Text = "Skeleton Transparency", Default = 0.15, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.skeleton.transparency = v end })
 
 local ChamsToggle = VisualBox:AddToggle("ESPChams", { Text = "Chams", Default = false, Callback = function(v) ESP.chams.enabled = v end })
 ChamsToggle:AddColorPicker("ChamsFill", { Default = ESP.chams.fill_color, Title = "Chams Fill", Callback = function(c) ESP.chams.fill_color = c end })
 ChamsToggle:AddColorPicker("ChamsOutline", { Default = ESP.chams.outline_color, Title = "Chams Outline", Callback = function(c) ESP.chams.outline_color = c end })
 VisualBox:AddSlider("ChamsFillTrans", { Text = "Chams Fill Transparency", Default = 0.5, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.chams.fill_transparency = v end })
-VisualBox:AddSlider("ChamsOutlineTrans", { Text = "Chams Outline Transparency", Default = 0, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.chams.outline_transparency = v end })
 
 local HealthToggle = VisualBox:AddToggle("ESPHealth", { Text = "Health Bar", Default = false, Callback = function(v) ESP.health_bar.enabled = v end })
 HealthToggle:AddColorPicker("HealthTop", { Default = ESP.health_bar.gradient.top_color, Title = "Gradient Top", Callback = function(c) ESP.health_bar.gradient.top_color = c end })
 HealthToggle:AddColorPicker("HealthBottom", { Default = ESP.health_bar.gradient.bottom_color, Title = "Gradient Bottom", Callback = function(c) ESP.health_bar.gradient.bottom_color = c end })
 VisualBox:AddSlider("HealthWidth", { Text = "Health Bar Width", Default = 1, Min = 0.5, Max = 5, Rounding = 1, Callback = function(v) ESP.health_bar.width = v end })
 VisualBox:AddToggle("HealthText", { Text = "Health Text", Default = false, Callback = function(v) ESP.health_bar.text.enabled = v end })
-VisualBox:AddToggle("HealthTextNumeric", { Text = "Health Text Numeric", Default = false, Callback = function(v) ESP.health_bar.text.show_numeric = v end })
 
 local ArmorToggle = VisualBox:AddToggle("ESPArmor", { Text = "Armor Bar", Default = false, Callback = function(v) ESP.armor_bar.enabled = v end })
 ArmorToggle:AddColorPicker("ArmorTop", { Default = ESP.armor_bar.gradient.top_color, Title = "Gradient Top", Callback = function(c) ESP.armor_bar.gradient.top_color = c end })
 ArmorToggle:AddColorPicker("ArmorBottom", { Default = ESP.armor_bar.gradient.bottom_color, Title = "Gradient Bottom", Callback = function(c) ESP.armor_bar.gradient.bottom_color = c end })
 VisualBox:AddSlider("ArmorWidth", { Text = "Armor Bar Width", Default = 1, Min = 0.5, Max = 5, Rounding = 1, Callback = function(v) ESP.armor_bar.width = v end })
-VisualBox:AddToggle("ArmorText", { Text = "Armor Text", Default = false, Callback = function(v) ESP.armor_bar.text.enabled = v end })
 
 local LabelsBox = Tabs.Visual:AddLeftGroupbox("Labels")
 local NameToggle = LabelsBox:AddToggle("ESPName", { Text = "Name", Default = false, Callback = function(v) ESP.labels.name.enabled = v end })
 NameToggle:AddColorPicker("NameColor", { Default = ESP.labels.name.color, Title = "Name Color", Callback = function(c) ESP.labels.name.color = c end })
-NameToggle:AddColorPicker("NameOutline", { Default = ESP.labels.name.outline_color, Title = "Name Outline", Callback = function(c) ESP.labels.name.outline_color = c end })
-local DisplayToggle = LabelsBox:AddToggle("ESPDisplayName", { Text = "Display Name", Default = false, Callback = function(v) ESP.labels.display_name.enabled = v end })
-DisplayToggle:AddColorPicker("DisplayColor", { Default = ESP.labels.display_name.color, Title = "Display Color", Callback = function(c) ESP.labels.display_name.color = c end })
-DisplayToggle:AddColorPicker("DisplayOutline", { Default = ESP.labels.display_name.outline_color, Title = "Display Outline", Callback = function(c) ESP.labels.display_name.outline_color = c end })
 local DistLabelToggle = LabelsBox:AddToggle("ESPDistance", { Text = "Distance", Default = false, Callback = function(v) ESP.labels.distance.enabled = v end })
 DistLabelToggle:AddColorPicker("DistColor", { Default = ESP.labels.distance.color, Title = "Distance Color", Callback = function(c) ESP.labels.distance.color = c end })
 local ToolToggle = LabelsBox:AddToggle("ESPTool", { Text = "Tool", Default = false, Callback = function(v) ESP.labels.tool.enabled = v end })
@@ -1391,11 +1328,9 @@ ToolToggle:AddColorPicker("ToolColor", { Default = ESP.labels.tool.color, Title 
 local FovBox = Tabs.Visual:AddRightGroupbox("FOV Circle")
 local FovToggle = FovBox:AddToggle("ESPFov", { Text = "Enable FOV", Default = false, Callback = function(v) ESP.fov.enabled = v end })
 FovToggle:AddColorPicker("FovColor", { Default = ESP.fov.color, Title = "FOV Color", Callback = function(c) ESP.fov.color = c end })
-FovToggle:AddColorPicker("FovOutline", { Default = ESP.fov.outline_color, Title = "FOV Outline", Callback = function(c) ESP.fov.outline_color = c end })
 FovBox:AddSlider("FovRadius", { Text = "FOV Radius", Default = 150, Min = 10, Max = 500, Rounding = 0, Callback = function(v) ESP.fov.radius = v end })
 FovBox:AddSlider("FovThickness", { Text = "FOV Thickness", Default = 1, Min = 0.5, Max = 5, Rounding = 1, Callback = function(v) ESP.fov.thickness = v end })
 FovBox:AddSlider("FovTransparency", { Text = "FOV Transparency", Default = 0.4, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.fov.transparency = v end })
-FovBox:AddToggle("FovFilled", { Text = "FOV Filled", Default = false, Callback = function(v) ESP.fov.filled = v end })
 
 local EffectBox = Tabs.Visual:AddRightGroupbox("Effects")
 EffectBox:AddToggle("HitSoundToggle", { Text = "Hit Sound", Default = true, Callback = function(v) S.HitSoundEnabled = v end })
@@ -1541,7 +1476,7 @@ local LockBtn = inew("ImageButton", {
     BackgroundTransparency = 1,
     BackgroundColor3 = Color3.fromRGB(0, 0, 0),
     BorderSizePixel = 0,
-    Image = "rbxassetid://20260922011221",
+    Image = "rbxassetid://137122449494480",
     ImageColor3 = Color3.fromRGB(255, 140, 0),
     ImageTransparency = 0,
     ScaleType = Enum.ScaleType.Fit,
@@ -1572,9 +1507,11 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- MAIN LOOPS
+-- MAIN LOOP (throttled autoselect — no more crash)
+local lastAutoSelect = 0
 RunService.RenderStepped:Connect(function(dt)
-    if S.Enabled and S.AutoSelect then
+    if S.Enabled and S.AutoSelect and tick() - lastAutoSelect > 0.1 then
+        lastAutoSelect = tick()
         local best, closest = math.huge, nil
         local center = Camera.ViewportSize / 2
         for _, plr in ipairs(Players:GetPlayers()) do
