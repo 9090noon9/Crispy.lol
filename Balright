@@ -53,7 +53,6 @@ local TN = {
     green  = Color3.fromRGB(158, 206, 106),
     red    = Color3.fromRGB(247, 118, 142),
     yellow = Color3.fromRGB(224, 175, 104),
-    orange = Color3.fromRGB(255, 158, 100),
 }
 
 local PingSets = {
@@ -168,7 +167,6 @@ local function GetClosestPartToCrosshair(char)
     return bestPart or char:FindFirstChild("HumanoidRootPart")
 end
 
--- wallcheck helper
 local function IsVisible(targetChar, targetPart)
     if not targetChar or not targetPart then return false end
     local origin = Camera.CFrame.Position
@@ -176,20 +174,24 @@ local function IsVisible(targetChar, targetPart)
     local dir = dest - origin
     local dist = dir.Magnitude
     if dist < 0.1 then return true end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = { LP.Character, Camera, targetChar }
-    params.IgnoreWater = true
-    local result = Workspace:Raycast(origin, dir, params)
-    return result == nil
-end
 
--- knocked check
-local function IsKnocked(plr)
-    if not plr or not plr.Character then return false end
-    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-    if hum.Health <= (S.KnockedHP or 5) then return true end
+    local params = RaycastParams.new()
+    local ok = pcall(function() params.FilterType = Enum.RaycastFilterType.Exclude end)
+    if not ok then pcall(function() params.FilterType = Enum.RaycastFilterType.Blacklist end) end
+
+    local exclude = { Camera, targetChar }
+    if LP.Character then
+        table.insert(exclude, LP.Character)
+        for _, d in ipairs(LP.Character:GetDescendants()) do table.insert(exclude, d) end
+    end
+    for _, d in ipairs(targetChar:GetDescendants()) do table.insert(exclude, d) end
+    params.FilterDescendantsInstances = exclude
+    params.IgnoreWater = true
+
+    local result = Workspace:Raycast(origin, dir, params)
+    if not result then return true end
+    local hit = result.Instance
+    if hit and hit:IsDescendantOf(targetChar) then return true end
     return false
 end
 
@@ -206,7 +208,9 @@ local function PlayHitSound()
     if not S.HitSoundEnabled then return end
     local id = Hitsounds[S.SelectedHitSound]
     if id then
-        HitSoundPlayer.SoundId = id; HitSoundPlayer.TimePosition = 0; HitSoundPlayer:Play()
+        HitSoundPlayer.SoundId = id
+        HitSoundPlayer.TimePosition = 0
+        HitSoundPlayer:Play()
     end
 end
 
@@ -736,11 +740,10 @@ if HAS_DRAWING then
 end
 
 -- ============================================================
--- TARGET STATS — styled to match Linoria groupbox exactly
+-- TARGET STATS — Linoria style + Tokyo Night palette
 -- ============================================================
 local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true })
 
--- Outer frame (Linoria groupbox style)
 local StatsFrame = inew("Frame", {
     Parent = StatsGui,
     AnchorPoint = Vector2.new(0.5, 0),
@@ -751,52 +754,25 @@ local StatsFrame = inew("Frame", {
     BorderSizePixel = 0,
     Visible = false,
 })
--- Linoria uses a thick border + accent-colored outline stroke
 inew("UIStroke", { Parent = StatsFrame, Color = TN.border, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
 inew("UIStroke", { Parent = StatsFrame, Color = TN.accent, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = TN.accent, BorderSizePixel = 0 })
 
--- Accent top line (Linoria signature)
-inew("Frame", {
-    Parent = StatsFrame,
-    Size = UDim2.new(1, 0, 0, 2),
-    BackgroundColor3 = TN.accent,
-    BorderSizePixel = 0,
-})
-
--- Title bar (matches Linoria section header)
-local TitleBar = inew("Frame", {
-    Parent = StatsFrame,
-    Position = UDim2.new(0, 0, 0, 2),
-    Size = UDim2.new(1, 0, 0, 20),
-    BackgroundColor3 = TN.surf,
-    BorderSizePixel = 0,
-})
+local TitleBar = inew("Frame", { Parent = StatsFrame, Position = UDim2.new(0, 0, 0, 2), Size = UDim2.new(1, 0, 0, 20), BackgroundColor3 = TN.surf, BorderSizePixel = 0 })
 local TitleText = inew("TextLabel", {
-    Parent = TitleBar,
-    Size = UDim2.new(1, -12, 1, 0),
-    Position = UDim2.new(0, 8, 0, -1),
-    BackgroundTransparency = 1,
-    Font = FONT,
-    Text = "Target",
-    TextColor3 = TN.text,
-    TextSize = 12,
+    Parent = TitleBar, Size = UDim2.new(1, -12, 1, 0), Position = UDim2.new(0, 8, 0, -1),
+    BackgroundTransparency = 1, Font = FONT, Text = "Target", TextColor3 = TN.text, TextSize = 12,
     TextXAlignment = Enum.TextXAlignment.Left,
 })
 inew("UIStroke", { Parent = TitleText, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
 
--- Content area (matches Linoria inner inline box)
 local ContentFrame = inew("Frame", {
-    Parent = StatsFrame,
-    Position = UDim2.new(0, 0, 0, 22),
-    Size = UDim2.new(1, 0, 0, 0),
-    AutomaticSize = Enum.AutomaticSize.Y,
-    BackgroundColor3 = TN.bg,
-    BorderSizePixel = 0,
+    Parent = StatsFrame, Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = TN.bg, BorderSizePixel = 0,
 })
 inew("UIPadding", { Parent = ContentFrame, PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) })
 inew("UIListLayout", { Parent = ContentFrame, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder })
 
--- Header block (avatar + name)
 local StatsHeader = inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1 })
 local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = TN.surf, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
 inew("UIStroke", { Parent = StatsAvatar, Color = TN.border, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
@@ -805,7 +781,6 @@ inew("UIStroke", { Parent = StatsName, Color = Color3.fromRGB(0,0,0), Thickness 
 local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.sub, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
 inew("UIStroke", { Parent = StatsSub, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
 
--- Divider
 inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = TN.border, BorderSizePixel = 0, LayoutOrder = 2 })
 
 local function MakeStatRow(order, label_text)
@@ -853,7 +828,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- ============================================================
--- LOCK — WITH WALLCHECK + KNOCKED CHECK
+-- LOCK — WALLCHECK + KNOCKED CHECK, no auto-pick on toggle
 -- ============================================================
 local function applyLock()
     if Target.Player then return end
@@ -864,21 +839,14 @@ local function applyLock()
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
             local hrp = plr.Character.HumanoidRootPart
             if hum and hum.Health > 0 then
-                -- KNOCKED CHECK
-                if S.CamKnocked and hum.Health <= (S.KnockedHP or 5) then
-                    -- skip
-                else
-                    -- WALLCHECK
-                    local visible = true
-                    if S.CamWallcheck then
-                        visible = IsVisible(plr.Character, hrp)
-                    end
-                    if visible then
-                        local pos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
-                        if onScreen then
-                            local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                            if dist < best then best = dist; closest = plr end
-                        end
+                local skip = false
+                if S.CamKnocked and hum.Health <= (S.KnockedHP or 5) then skip = true end
+                if not skip and S.CamWallcheck and not IsVisible(plr.Character, hrp) then skip = true end
+                if not skip then
+                    local pos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if dist < best then best = dist; closest = plr end
                     end
                 end
             end
@@ -909,7 +877,7 @@ local function toggleLock()
     end)
 end
 
--- Hook cache precompute (outside hooks)
+-- hook cache precompute
 RunService.RenderStepped:Connect(function()
     local tp = Target.Player
     if not S.Enabled or not tp or not tp.Character then HookCache.active = false; return end
@@ -930,7 +898,7 @@ RunService.RenderStepped:Connect(function()
     HookCache.active = true
 end)
 
--- CAMLOCK LOOP — honor's exact logic (no Scriptable, no BindToRenderStep)
+-- CAMLOCK — honor's exact logic, no Scriptable
 RunService.RenderStepped:Connect(function()
     if not S.Camlock then return end
     if not CamlockTarget or not CamlockTarget.Parent then return end
@@ -940,13 +908,13 @@ RunService.RenderStepped:Connect(function()
     Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), S.CamSmooth)
 end)
 
--- 360 rotation
+-- 360
 RunService.RenderStepped:Connect(function(dt)
     if not S.Rotate360 then return end
     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
 end)
 
--- Hooks (no function calls inside — cached only)
+-- hooks
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
     if checkcaller() or not HookCache.active then return oldnc(self_, ...) end
@@ -1002,7 +970,6 @@ local Tabs = {
 }
 
 -- LEGITBOT
-
 local CombatBox = Tabs.Legitbot:AddLeftGroupbox("Aim")
 CombatBox:AddToggle("EnableCrispy", { Text = "Enable", Default = true, Callback = function(v)
     S.Enabled = v
@@ -1015,13 +982,7 @@ CombatBox:AddToggle("AutoSelect", { Text = "Auto Select", Default = false, Callb
 CombatBox:AddToggle("SilentToggle", { Text = "Silent Aim", Default = false, Callback = function(v) S.Silent = v end })
 
 local CamBox = Tabs.Legitbot:AddRightGroupbox("Camlock")
-CamBox:AddToggle("CamlockToggle", { Text = "Enable Camlock", Default = false, Callback = function(v)
-    S.Camlock = v
-    -- NO auto-pick. If no target is locked, camlock simply does nothing until you lock via H or AutoSelect.
-    if not v then
-        -- only release camera when disabling (keep target if you want to keep silent aim)
-    end
-end })
+CamBox:AddToggle("CamlockToggle", { Text = "Enable Camlock", Default = false, Callback = function(v) S.Camlock = v end })
 CamBox:AddSlider("SmoothSlider", { Text = "Smoothness", Default = 0.15, Min = 0.02, Max = 1, Rounding = 2, Callback = function(v) S.CamSmooth = v end })
 CamBox:AddInput("CamPred", { Default = "0.13", Numeric = true, Text = "Prediction", Callback = function(v) S.CamPred = tonumber(v) or 0.13 end })
 CamBox:AddSlider("CamJump", { Text = "Cam Jump Offset", Default = 0, Min = -5, Max = 5, Rounding = 2, Callback = function(v) S.CamJump = v end })
@@ -1032,15 +993,19 @@ CamBox:AddSlider("KnockedHPSlider", { Text = "Knocked HP Threshold", Default = 5
 local TargetAimBox = Tabs.Legitbot:AddLeftGroupbox("Target Aim")
 TargetAimBox:AddDropdown("TargetAimPartDropdown", { Text = "Target Aim Part", Values = HitParts, Default = "HumanoidRootPart", Callback = function(v) S.SilentAimPart = v end })
 TargetAimBox:AddButton({
+    Text = "Load Lock Button",
+    Func = function()
+        if LockGui then LockGui.Enabled = true end
+        if LockBtn then LockBtn.Visible = true end
+        pcall(function() Library:Notify("Lock button loaded") end)
+    end,
+})
+TargetAimBox:AddButton({
     Text = "Lock Target (or press H)",
     Func = function()
         pcall(toggleLock)
         if LockBtn then
-            if Target.Player then
-                LockBtn.ImageColor3 = Color3.fromRGB(120, 255, 120)
-            else
-                LockBtn.ImageColor3 = TN.accent
-            end
+            LockBtn.ImageColor3 = Target.Player and Color3.fromRGB(120, 255, 120) or TN.accent
         end
     end,
 })
@@ -1058,7 +1023,6 @@ Rotate360Box:AddToggle("Rotate360Toggle", { Text = "Enable 360", Default = false
 Rotate360Box:AddSlider("Rotate360SpeedSlider", { Text = "Rotate Speed", Default = 10000, Min = 100, Max = 100000, Rounding = 0, Callback = function(v) S.Rotate360Speed = v end })
 
 -- RAGEBOT
-
 local StrafeBox = Tabs.Ragebot:AddLeftGroupbox("Target Strafe")
 StrafeBox:AddToggle("StrafeToggle", { Text = "Enable Strafe", Default = false, Callback = function(v) S.Strafe = v end })
 StrafeBox:AddSlider("StrafeDistSlider", { Text = "Distance", Default = 5, Min = 1, Max = 15, Rounding = 1, Callback = function(v) S.StrafeDist = v end })
@@ -1075,7 +1039,7 @@ local BulletTPBox = Tabs.Ragebot:AddLeftGroupbox("Bullet TP")
 BulletTPBox:AddToggle("BulletTPToggle", { Text = "Enable Bullet TP", Default = false, Callback = function(v) S.BulletTPEnabled = v end })
 BulletTPBox:AddSlider("BulletTPDistanceSlider", { Text = "TP Distance", Default = 15, Min = 1, Max = 50, Rounding = 0, Suffix = " studs", Callback = function(v) S.BulletTPDistance = v end })
 
--- HITBOX LOGIC
+-- HITBOX
 local HitboxCache = {}
 RunService.Heartbeat:Connect(function()
     if not S.HitboxEnabled then
@@ -1190,7 +1154,6 @@ if LP.Character then BulletTP_Setup(LP.Character) end
 LP.CharacterAdded:Connect(function(char) task.wait(0.5); BulletTP_Setup(char) end)
 
 -- VISUAL
-
 local VisualBox = Tabs.Visual:AddLeftGroupbox("ESP")
 VisualBox:AddToggle("ESPMaster", { Text = "Master Switch", Default = true, Callback = function(v) ESP.visuals_enabled = v end })
 
@@ -1244,7 +1207,6 @@ local StatsBox = Tabs.Visual:AddRightGroupbox("Stats")
 StatsBox:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
 
 -- MISC
-
 local AutoBuyBox = Tabs.Misc:AddLeftGroupbox("Auto Buy")
 AutoBuyBox:AddToggle("AutoFoodToggle", { Text = "Auto Buy Food", Default = false, Callback = function(v) S.AutoFood = v end })
 AutoBuyBox:AddDropdown("AutoFoodDropdown", { Text = "Food Type", Values = { "[Chicken]", "[Burger]", "[Pizza]", "[Taco]", "[Donut]" }, Default = "[Chicken]", Callback = function(v) S.SelectedFood = v end })
@@ -1262,35 +1224,44 @@ local MiscBox = Tabs.Misc:AddLeftGroupbox("Misc")
 MiscBox:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
 MiscBox:AddButton({ Text = "Toggle Menu", Func = function() Library:Toggle() end })
 
--- AUTO BUY LOGIC
+-- AUTO BUY LOGIC (improved path search)
 local function SafeFireClickDetector(padName)
     if not padName then return false end
-    local function findPad()
-        local map = Workspace:FindFirstChild("MAP")
-        if map then
-            local pads = map:FindFirstChild("Pads")
-            if pads then
-                local pad = pads:FindFirstChild(padName)
-                if pad and pad:FindFirstChildOfClass("ClickDetector") then return pad end
-            end
-            local shops = map:FindFirstChild("Shops")
-            if shops then
-                local pad = shops:FindFirstChild(padName)
-                if pad and pad:FindFirstChildOfClass("ClickDetector") then return pad end
-            end
-        end
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj.Name == padName then
-                local det = obj:FindFirstChildOfClass("ClickDetector")
-                if det then return obj end
-            end
-        end
-        return nil
+    local function tryClick(obj)
+        if not obj then return false end
+        local det = obj:FindFirstChildOfClass("ClickDetector") or obj:FindFirstChildWhichIsA("ClickDetector")
+        if det then pcall(function() fireclickdetector(det) end); return true end
+        return false
     end
-    local pad = findPad()
-    if not pad then return false end
-    local det = pad:FindFirstChildOfClass("ClickDetector") or pad:FindFirstChildWhichIsA("ClickDetector")
-    if det then pcall(function() fireclickdetector(det) end); return true end
+    local map = Workspace:FindFirstChild("MAP")
+    if map then
+        for _, group in ipairs({ "Pads", "Shops", "Shop", "Items" }) do
+            local g = map:FindFirstChild(group)
+            if g then
+                local pad = g:FindFirstChild(padName)
+                if tryClick(pad) then return true end
+            end
+        end
+    end
+    local ignored = Workspace:FindFirstChild("Ignored")
+    if ignored then
+        for _, child in ipairs(ignored:GetChildren()) do
+            local pad = child:FindFirstChild(padName)
+            if tryClick(pad) then return true end
+            if child.Name == padName and tryClick(child) then return true end
+        end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == padName and tryClick(obj) then return true end
+    end
+    local cleaned = padName:gsub("[%[%]]", "")
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and obj:FindFirstChildOfClass("ClickDetector") then
+            if string.find(obj.Name, cleaned, 1, true) then
+                if tryClick(obj) then return true end
+            end
+        end
+    end
     return false
 end
 
@@ -1407,7 +1378,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- MAIN LOOP (throttled autoselect — no camlock auto-pick)
+-- MAIN LOOP
 local lastAutoSelect = 0
 RunService.RenderStepped:Connect(function(dt)
     if S.Enabled and S.AutoSelect and tick() - lastAutoSelect > 0.1 then
@@ -1419,17 +1390,14 @@ RunService.RenderStepped:Connect(function(dt)
                 local hum = plr.Character:FindFirstChildOfClass("Humanoid")
                 local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
                 if hum and hrp and hum.Health > 0 then
-                    if not (S.CamKnocked and hum.Health <= (S.KnockedHP or 5)) then
-                        local visible = true
-                        if S.CamWallcheck then
-                            visible = IsVisible(plr.Character, hrp)
-                        end
-                        if visible then
-                            local sp, on = Camera:WorldToViewportPoint(hrp.Position)
-                            if on then
-                                local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                                if m < best then best = m; closest = plr end
-                            end
+                    local skip = false
+                    if S.CamKnocked and hum.Health <= (S.KnockedHP or 5) then skip = true end
+                    if not skip and S.CamWallcheck and not IsVisible(plr.Character, hrp) then skip = true end
+                    if not skip then
+                        local sp, on = Camera:WorldToViewportPoint(hrp.Position)
+                        if on then
+                            local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                            if m < best then best = m; closest = plr end
                         end
                     end
                 end
@@ -1447,7 +1415,6 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- AutoSelect should also update camlock target if camlock is on
     if S.Camlock and Target.HRP and Target.HRP.Parent then
         CamlockTarget = Target.HRP
     end
@@ -1495,3 +1462,133 @@ pcall(function()
     ThemeManager:ApplyToTab(Tabs.Settings)
     SaveManager:LoadAutoloadConfig()
 end)
+
+-- ============================================================
+-- TRIGGERBOT
+-- ============================================================
+local Triggerbot = {
+    Enabled = false,
+    Delay = 0.03,
+    Prediction = 0,
+    Checks = {
+        KnifeCheck = false,
+        ForcefieldCheck = false,
+        KnockedCheck = false,
+        AmmoCheck = false,
+    },
+}
+
+local TB_RayParams = RaycastParams.new()
+pcall(function() TB_RayParams.FilterType = Enum.RaycastFilterType.Exclude end)
+pcall(function() TB_RayParams.FilterType = Enum.RaycastFilterType.Blacklist end)
+TB_RayParams.IgnoreWater = true
+
+local TB_LastFire = 0
+
+local function TB_HasAmmo()
+    local char = LP.Character
+    if not char then return false end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool then return false end
+    for _, name in ipairs({ "CurrentAmmo", "Clip", "Mag", "Ammo" }) do
+        local v = tool:FindFirstChild(name)
+        if v and v:IsA("IntValue") then return v.Value > 0 end
+    end
+    return true
+end
+
+local function TB_IsValidTarget(char)
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    if Players:GetPlayerFromCharacter(char) == LP then return false end
+
+    if Triggerbot.Checks.KnifeCheck then
+        local myTool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+        if myTool then
+            local n = string.lower(myTool.Name)
+            local cn = string.lower(myTool.ClassName)
+            if string.find(n, "knife") or string.find(n, "blade") or string.find(n, "dagger")
+                or string.find(n, "combat") or string.find(n, "melee") or string.find(n, "sword")
+                or string.find(cn, "knife") or string.find(cn, "blade") then
+                return false
+            end
+        end
+    end
+
+    if Triggerbot.Checks.ForcefieldCheck then
+        if char:FindFirstChildOfClass("ForceField") then return false end
+        if char:GetAttribute("Shield") or char:GetAttribute("Protected") then return false end
+    end
+
+    if Triggerbot.Checks.KnockedCheck then
+        local knocked = false
+        local be = char:FindFirstChild("BodyEffects")
+        if be then
+            local ko = be:FindFirstChild("K.O")
+            local dead = be:FindFirstChild("Dead")
+            if (ko and ko.Value) or (dead and dead.Value) then knocked = true end
+        elseif hum.Health < 4 then
+            knocked = true
+        end
+        if knocked then return false end
+    end
+
+    if Triggerbot.Checks.AmmoCheck and not TB_HasAmmo() then return false end
+
+    return true
+end
+
+RunService.RenderStepped:Connect(function()
+    if not Triggerbot.Enabled or not S.Enabled then return end
+    if not LP.Character then return end
+
+    TB_RayParams.FilterDescendantsInstances = { LP.Character }
+
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    local ray = cam:ViewportPointToRay(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local origin = ray.Origin
+    local direction = ray.Direction
+
+    local hit = Workspace:Raycast(origin, direction * 1000, TB_RayParams)
+    if not hit or not hit.Instance then return end
+
+    local model = hit.Instance:FindFirstAncestorOfClass("Model")
+    if not TB_IsValidTarget(model) then return end
+
+    local targetPos = hit.Position
+    if Triggerbot.Prediction > 0 then
+        local trackPart = model:FindFirstChild("HumanoidRootPart")
+            or model:FindFirstChild("Torso")
+            or model:FindFirstChild("UpperTorso")
+        if trackPart then
+            targetPos = trackPart.Position + trackPart.Velocity * Triggerbot.Prediction
+        end
+    end
+
+    local newDir = (targetPos - origin).Unit
+    local recheck = Workspace:Raycast(origin, newDir * 1000, TB_RayParams)
+    if not recheck or not recheck.Instance then return end
+    if not recheck.Instance:IsDescendantOf(model) then return end
+
+    local now = tick()
+    if now - TB_LastFire < Triggerbot.Delay then return end
+
+    local tool = LP.Character:FindFirstChildOfClass("Tool")
+    if tool then
+        pcall(function() tool:Activate() end)
+        TB_LastFire = now
+    end
+end)
+
+-- Triggerbot UI
+local TBBox = Tabs.Legitbot:AddRightGroupbox("Triggerbot")
+
+TBBox:AddToggle("TBEnable", { Text = "Enable Triggerbot", Default = false, Callback = function(v) Triggerbot.Enabled = v end })
+TBBox:AddInput("TBDelay", { Default = "0.03", Numeric = true, Text = "Delay (seconds)", Callback = function(v) Triggerbot.Delay = tonumber(v) or 0.03 end })
+TBBox:AddInput("TBPrediction", { Default = "0", Numeric = true, Text = "Prediction", Callback = function(v) Triggerbot.Prediction = tonumber(v) or 0 end })
+TBBox:AddToggle("TBKnife", { Text = "Knife Check", Default = false, Callback = function(v) Triggerbot.Checks.KnifeCheck = v end })
+TBBox:AddToggle("TBForcefield", { Text = "Forcefield Check", Default = false, Callback = function(v) Triggerbot.Checks.ForcefieldCheck = v end })
+TBBox:AddToggle("TBKnocked", { Text = "Knocked Check", Default = false, Callback = function(v) Triggerbot.Checks.KnockedCheck = v end })
+TBBox:AddToggle("TBAmmo", { Text = "Ammo Check", Default = false, Callback = function(v) Triggerbot.Checks.AmmoCheck = v end })
