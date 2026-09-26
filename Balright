@@ -1,10 +1,7 @@
 if _G.CRISPY_LOADED then return end
 _G.CRISPY_LOADED = true
 
-pcall(function()
-    if setfpscap then setfpscap(240) end
-end)
-
+pcall(function() if setfpscap then setfpscap(240) end end)
 repeat task.wait() until game:IsLoaded()
 
 local Players    = game:GetService("Players")
@@ -17,9 +14,7 @@ local Camera     = Workspace.CurrentCamera
 local Mouse      = LP:GetMouse()
 
 local CoreGui
-pcall(function()
-    if gethui then CoreGui = gethui() end
-end)
+pcall(function() if gethui then CoreGui = gethui() end end)
 CoreGui = CoreGui or game:GetService("CoreGui")
 
 hookmetamethod    = hookmetamethod    or function() return function() end end
@@ -63,17 +58,14 @@ local S = {
     Strafe = false, StrafeDist = 5, StrafeSpeed = 6, StrafeHeight = 2,
     ViewTarget = false, AutoAir = false, AutoAirDelay = 0.1,
     Silent = false, SilentBone = "Head",
-    VisualEnabled = true, VisualSize = 6,
+    VisualEnabled = true,
     HitSoundEnabled = true, SelectedHitSound = "Skeet",
     HitEffectEnabled = true, SelectedHitEffect = "Crescent Slash",
     TargetStatsEnabled = true,
     TargetAimBone = "Head",
     PingAim = false, PingRef = 50, PingMult = 0.002,
-    DistanceAim = false,
-    DistNear = 50, DistFar = 300,
+    DistanceAim = false, DistNear = 50, DistFar = 300,
     DistNearMult = 0.5, DistFarMult = 2.0,
-    HookMethod = "Both",
-    CSyncEnabled = false, CSyncSpeed = 10,
     HitboxEnabled = false, HitboxSize = 10, HitboxTransparency = 0.7,
     BulletTPEnabled = false, BulletTPDistance = 15,
     AutoFood = false, SelectedFood = "[Chicken]",
@@ -87,7 +79,6 @@ local CurrentTarget = { Player = nil, HRP = nil }
 local Target        = { Player = nil, HRP = nil }
 local CamlockTarget = nil
 local CurrentTool   = nil
-local Cylinder      = nil
 local StrafeAngle   = 0
 local AirDebounce   = false
 
@@ -102,25 +93,13 @@ local HitParts = {
 
 local function inew(class, props)
     local o = Instance.new(class)
-    for k, v in pairs(props or {}) do
-        o[k] = v
-    end
+    for k, v in pairs(props or {}) do o[k] = v end
     return o
-end
-
-local function SafeNotify(msg)
-    pcall(function()
-        if type(Library.Notify) == "function" then Library:Notify(msg) end
-    end)
-    pcall(function()
-        if type(Library.Notification) == "function" then Library:Notification(msg, 3) end
-    end)
 end
 
 local function GetTargetPart(plr)
     if not plr or not plr.Character then return nil end
     local char = plr.Character
-
     if S.TargetAimBone == "Closest Part" then
         local cam = Workspace.CurrentCamera
         if not cam then return char:FindFirstChild("HumanoidRootPart") end
@@ -203,23 +182,20 @@ local function HitEffect(position)
         })
         e:Emit()
     elseif S.SelectedHitEffect == "Confetti" then
-        local colors = { Color3.new(1, 0.55, 0), Color3.new(1, 0.85, 0.1), Color3.new(1, 0.7, 0.2), Color3.new(1, 0.9, 0.4) }
-        for _, c in ipairs(colors) do
+        for _, c in ipairs({ Color3.new(1, 0.55, 0), Color3.new(1, 0.85, 0.1), Color3.new(1, 0.7, 0.2), Color3.new(1, 0.9, 0.4) }) do
             local e = inew("ParticleEmitter", {
                 Acceleration = Vector3.new(0, -10, 0), Color = ColorSequence.new(c),
                 Lifetime = NumberRange.new(1, 2), RotSpeed = NumberRange.new(260, 260),
                 Size = NumberSequence.new(0.1), Speed = NumberRange.new(15, 15),
-                SpreadAngle = Vector2.new(360, 360),
-                Texture = "rbxassetid://241685484", Parent = att,
+                SpreadAngle = Vector2.new(360, 360), Texture = "rbxassetid://241685484", Parent = att,
             })
             e:Emit(1)
         end
     elseif S.SelectedHitEffect == "Bubble" then
         local e = inew("ParticleEmitter", {
             Color = ColorSequence.new(col), Lifetime = NumberRange.new(0.5, 0.5),
-            LightEmission = 1, Rate = 0,
-            Size = NumberSequence.new(0, 10), Speed = NumberRange.new(1.5, 1.5),
-            Texture = "rbxassetid://1084991215", Parent = att,
+            LightEmission = 1, Rate = 0, Size = NumberSequence.new(0, 10),
+            Speed = NumberRange.new(1.5, 1.5), Texture = "rbxassetid://1084991215", Parent = att,
         })
         e:Emit(1)
     else
@@ -241,9 +217,7 @@ local function HitEffect(position)
         e2:Emit(50)
     end
 
-    task.delay(2, function()
-        if part then part:Destroy() end
-    end)
+    task.delay(2, function() if part then part:Destroy() end end)
 end
 
 local ESP = {
@@ -845,42 +819,13 @@ local StatsFrame = inew("Frame", {
     Visible = false,
 })
 
-inew("UIStroke", {
-    Parent = StatsFrame,
-    Color = Library.Theme.Accent,
-    Thickness = 1,
-    ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-})
-
+inew("UIStroke", { Parent = StatsFrame, Color = Library.Theme.Accent, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
 inew("UICorner", { Parent = StatsFrame, CornerRadius = UDim.new(0, 6) })
+inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Library.Theme.Accent, BorderSizePixel = 0 })
+inew("UIPadding", { Parent = StatsFrame, PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) })
+inew("UIListLayout", { Parent = StatsFrame, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder })
 
-inew("Frame", {
-    Parent = StatsFrame,
-    Size = UDim2.new(1, 0, 0, 2),
-    BackgroundColor3 = Library.Theme.Accent,
-    BorderSizePixel = 0,
-})
-
-inew("UIPadding", {
-    Parent = StatsFrame,
-    PaddingTop = UDim.new(0, 10),
-    PaddingBottom = UDim.new(0, 10),
-    PaddingLeft = UDim.new(0, 12),
-    PaddingRight = UDim.new(0, 12),
-})
-
-inew("UIListLayout", {
-    Parent = StatsFrame,
-    Padding = UDim.new(0, 6),
-    SortOrder = Enum.SortOrder.LayoutOrder,
-})
-
-local StatsHeader = inew("Frame", {
-    Parent = StatsFrame,
-    Size = UDim2.new(1, 0, 0, 32),
-    BackgroundTransparency = 1,
-    LayoutOrder = 1,
-})
+local StatsHeader = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, LayoutOrder = 1 })
 
 local StatsAvatar = inew("ImageLabel", {
     Parent = StatsHeader,
@@ -889,14 +834,8 @@ local StatsAvatar = inew("ImageLabel", {
     BorderSizePixel = 0,
     Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 })
-
 inew("UICorner", { Parent = StatsAvatar, CornerRadius = UDim.new(0, 4) })
-
-inew("UIStroke", {
-    Parent = StatsAvatar,
-    Color = Library.Theme.Outline,
-    Thickness = 1,
-})
+inew("UIStroke", { Parent = StatsAvatar, Color = Library.Theme.Outline, Thickness = 1 })
 
 local StatsName = inew("TextLabel", {
     Parent = StatsHeader,
@@ -961,23 +900,12 @@ local RowStatus = MakeStatRow(5, "Status")
 
 RunService.Heartbeat:Connect(function()
     pcall(function()
-        if not S.TargetStatsEnabled then
-            StatsFrame.Visible = false
-            return
-        end
-
+        if not S.TargetStatsEnabled then StatsFrame.Visible = false return end
         local tp = CurrentTarget.Player
-        if not tp or not tp.Character then
-            StatsFrame.Visible = false
-            return
-        end
-
+        if not tp or not tp.Character then StatsFrame.Visible = false return end
         local hum = tp.Character:FindFirstChildOfClass("Humanoid")
         local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then
-            StatsFrame.Visible = false
-            return
-        end
+        if not hum or not hrp then StatsFrame.Visible = false return end
 
         StatsFrame.Visible = true
         StatsAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tp.UserId .. "&w=150&h=150"
@@ -985,17 +913,13 @@ RunService.Heartbeat:Connect(function()
         StatsSub.Text = "@" .. tp.Name
 
         RowHealth.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
-        RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3
-            and Color3.fromRGB(255, 80, 80)
-            or Library.Theme.Text
+        RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3 and Color3.fromRGB(255, 80, 80) or Library.Theme.Text
 
         local be = tp.Character:FindFirstChild("BodyEffects")
         local av = be and be:FindFirstChild("Armor")
         local armor = av and math.floor(av.Value) or 0
         RowArmor.Text = tostring(armor)
-        RowArmor.TextColor3 = armor > 0
-            and Color3.fromRGB(100, 180, 255)
-            or Library.Theme.Text
+        RowArmor.TextColor3 = armor > 0 and Color3.fromRGB(100, 180, 255) or Library.Theme.Text
 
         local myChar = LP.Character
         local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -1004,14 +928,11 @@ RunService.Heartbeat:Connect(function()
         local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
         if myHum then
             if myHum.Health > hum.Health then
-                RowStatus.Text = "Winning"
-                RowStatus.TextColor3 = Color3.fromRGB(80, 220, 100)
+                RowStatus.Text = "Winning"; RowStatus.TextColor3 = Color3.fromRGB(80, 220, 100)
             elseif myHum.Health < hum.Health then
-                RowStatus.Text = "Losing"
-                RowStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
+                RowStatus.Text = "Losing"; RowStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
             else
-                RowStatus.Text = "Even"
-                RowStatus.TextColor3 = Color3.fromRGB(255, 210, 80)
+                RowStatus.Text = "Even"; RowStatus.TextColor3 = Color3.fromRGB(255, 210, 80)
             end
         end
     end)
@@ -1029,22 +950,17 @@ local function applyLock()
         if plr ~= LP and plr.Character then
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
             local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-
             if hum and hrp and hum.Health > 0 then
                 local sp, on = Camera:WorldToViewportPoint(hrp.Position)
                 if on then
                     local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if m < best then
-                        best = m
-                        closest = plr
-                    end
+                    if m < best then best = m; closest = plr end
                 end
             end
         end
     end
 
     if not closest or not closest.Character then return end
-
     local hrp = closest.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
@@ -1055,8 +971,6 @@ local function applyLock()
     CamlockTarget = hrp
     S.Camlock = true
     Camera.CameraType = Enum.CameraType.Scriptable
-
-    SafeNotify("Locked " .. closest.Name)
 end
 
 local function releaseLock()
@@ -1067,54 +981,14 @@ local function releaseLock()
     CamlockTarget = nil
     S.Camlock = false
     Camera.CameraType = DEFAULT_CAMERA_TYPE
-
-    SafeNotify("Unlocked")
 end
 
 local function toggleLock()
     if not S.Enabled then return end
     pcall(function()
-        if Target.Player then
-            releaseLock()
-        else
-            applyLock()
-        end
+        if Target.Player then releaseLock() else applyLock() end
     end)
 end
-
-RunService.RenderStepped:Connect(function()
-    local targetHRP = Target.HRP or CamlockTarget
-
-    if not S.Enabled or not targetHRP or not targetHRP.Parent or not S.VisualEnabled then
-        if Cylinder then
-            Cylinder:Destroy()
-            Cylinder = nil
-        end
-        return
-    end
-
-    if not Cylinder or not Cylinder.Parent then
-        Cylinder = inew("Part", {
-            Parent = Workspace,
-            Shape = Enum.PartType.Cylinder,
-            Anchored = true,
-            CanCollide = false,
-            Material = Enum.Material.Neon,
-        })
-        inew("Highlight", {
-            Parent = Cylinder,
-            FillColor = Color3.fromRGB(255, 140, 0),
-            OutlineColor = Color3.fromRGB(255, 215, 0),
-            FillTransparency = 0.5,
-            DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
-        })
-    end
-
-    Cylinder.Size = Vector3.new(0.1, S.VisualSize, S.VisualSize)
-    Cylinder.CFrame =
-        CFrame.new(targetHRP.Position - Vector3.new(0, targetHRP.Size.Y / 2 + 0.5, 0))
-        * CFrame.Angles(0, 0, math.rad(90))
-end)
 
 RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 1, function(dt)
     pcall(function()
@@ -1123,11 +997,9 @@ RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 
             if Camera.CameraType ~= Enum.CameraType.Scriptable then
                 Camera.CameraType = Enum.CameraType.Scriptable
             end
-
             local pred = target.Position
                 + target.Velocity * S.CamPred
                 + Vector3.new(0, S.CamJump, 0)
-
             local alpha = 1 - math.exp(-dt / math.max(S.CamSmooth, 0.001))
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), alpha)
         elseif not S.Camlock and Camera.CameraType == Enum.CameraType.Scriptable then
@@ -1136,19 +1008,9 @@ RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 
     end)
 end)
 
-local function HookMethodMatches(name)
-    local mode = S.HookMethod or "Both"
-    if mode == "Both" then return true end
-    if mode == "Namecall" then return name == "namecall" end
-    if mode == "Index" then return name == "index" end
-    return true
-end
-
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
-    if checkcaller() or not HookMethodMatches("namecall") then
-        return oldnc(self_, ...)
-    end
+    if checkcaller() then return oldnc(self_, ...) end
 
     local method = getnamecallmethod()
     local args = { ... }
@@ -1181,9 +1043,7 @@ end))
 
 local oldidx
 oldidx = hookmetamethod(game, "__index", newcclosure(function(self_, key)
-    if checkcaller() or not HookMethodMatches("index") then
-        return oldidx(self_, key)
-    end
+    if checkcaller() then return oldidx(self_, key) end
 
     local activeHRP = Target.HRP or CamlockTarget
 
@@ -1251,7 +1111,6 @@ CombatBox:AddToggle("AutoSelect", { Text = "Auto Select", Default = false, Callb
 CombatBox:AddToggle("SilentToggle", { Text = "Silent Aim", Default = false, Callback = function(v) S.Silent = v end })
 CombatBox:AddDropdown("HitPartDropdown", { Text = "Hit Part", Values = HitParts, Default = "Head", Callback = function(v) S.TargetAimBone = v end })
 CombatBox:AddDropdown("SilentBone", { Text = "Silent Bone", Values = HitParts, Default = "Head", Callback = function(v) S.SilentBone = v end })
-CombatBox:AddDropdown("HookMethodDropdown", { Text = "Hook Method", Values = { "Both", "Namecall", "Index" }, Default = "Both", Callback = function(v) S.HookMethod = v end })
 
 local CamBox = Tabs.Legitbot:AddRightGroupbox("Camlock")
 
@@ -1294,7 +1153,9 @@ DistBox:AddSlider("DistFarSlider", { Text = "Far Range", Default = 300, Min = 0,
 DistBox:AddSlider("DistNearMultSlider", { Text = "Near Multiplier", Default = 0.5, Min = 0, Max = 3, Rounding = 2, Callback = function(v) S.DistNearMult = v end })
 DistBox:AddSlider("DistFarMultSlider", { Text = "Far Multiplier", Default = 2.0, Min = 0, Max = 3, Rounding = 2, Callback = function(v) S.DistFarMult = v end })
 
-local StrafeBox = Tabs.Legitbot:AddLeftGroupbox("Target Strafe")
+-- RAGEBOT
+
+local StrafeBox = Tabs.Ragebot:AddLeftGroupbox("Target Strafe")
 
 StrafeBox:AddToggle("StrafeToggle", { Text = "Enable Strafe", Default = false, Callback = function(v) S.Strafe = v end })
 StrafeBox:AddSlider("StrafeDistSlider", { Text = "Distance", Default = 5, Min = 1, Max = 15, Rounding = 1, Callback = function(v) S.StrafeDist = v end })
@@ -1304,34 +1165,18 @@ StrafeBox:AddToggle("ViewTargetToggle", { Text = "View Target", Default = false,
 StrafeBox:AddToggle("AutoAirToggle", { Text = "Auto Air", Default = false, Callback = function(v) S.AutoAir = v end })
 StrafeBox:AddInput("AutoAirDelayInput", { Default = "0.1", Numeric = true, Text = "Auto Air Delay", Callback = function(v) S.AutoAirDelay = tonumber(v) or 0.1 end })
 
--- RAGEBOT
-
-local CSyncBox = Tabs.Ragebot:AddLeftGroupbox("CSync")
-CSyncBox:AddToggle("CSyncToggle", { Text = "Enable CSync", Default = false, Callback = function(v) S.CSyncEnabled = v end })
-CSyncBox:AddSlider("CSyncSpeed", { Text = "Sync Speed", Default = 10, Min = 1, Max = 50, Rounding = 0, Callback = function(v) S.CSyncSpeed = v end })
-
 local HitboxBox = Tabs.Ragebot:AddRightGroupbox("Hitbox Expander")
+
 HitboxBox:AddToggle("HitboxToggle", { Text = "Enable Hitbox Expander", Default = false, Callback = function(v) S.HitboxEnabled = v end })
 HitboxBox:AddSlider("HitboxSize", { Text = "Hitbox Size", Default = 10, Min = 1, Max = 50, Rounding = 0, Callback = function(v) S.HitboxSize = v end })
 HitboxBox:AddSlider("HitboxTransparency", { Text = "Hitbox Transparency", Default = 0.7, Min = 0, Max = 1, Rounding = 2, Callback = function(v) S.HitboxTransparency = v end })
 
 local BulletTPBox = Tabs.Ragebot:AddLeftGroupbox("Bullet TP")
+
 BulletTPBox:AddToggle("BulletTPToggle", { Text = "Enable Bullet TP", Default = false, Callback = function(v) S.BulletTPEnabled = v end })
 BulletTPBox:AddSlider("BulletTPDistanceSlider", { Text = "TP Distance", Default = 15, Min = 1, Max = 50, Rounding = 0, Suffix = " studs", Callback = function(v) S.BulletTPDistance = v end })
 
-local CSyncAngle = 0
-
-RunService.Heartbeat:Connect(function(dt)
-    if not S.CSyncEnabled then return end
-    local char = LP.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    CSyncAngle = CSyncAngle + dt * S.CSyncSpeed
-    if CSyncAngle >= 360 then CSyncAngle = CSyncAngle - 360 end
-    hrp.CFrame = CFrame.new(hrp.CFrame.Position) * CFrame.Angles(0, math.rad(CSyncAngle), 0)
-end)
-
+-- HITBOX LOGIC
 local HitboxCache = {}
 
 RunService.Heartbeat:Connect(function()
@@ -1387,6 +1232,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- BULLET TP LOGIC
 local bulletTP_toolConn, bulletTP_addConn
 
 local function BulletTP_GetTarget()
@@ -1532,12 +1378,8 @@ FovBox:AddSlider("FovThickness", { Text = "FOV Thickness", Default = 1, Min = 0.
 FovBox:AddSlider("FovTransparency", { Text = "FOV Transparency", Default = 0.4, Min = 0, Max = 1, Rounding = 2, Callback = function(v) ESP.fov.transparency = v end })
 FovBox:AddToggle("FovFilled", { Text = "FOV Filled", Default = false, Callback = function(v) ESP.fov.filled = v end })
 
-local VisBox = Tabs.Visual:AddRightGroupbox("Misc Visual")
-VisBox:AddToggle("VisualToggle", { Text = "Enable Cylinder", Default = true, Callback = function(v) S.VisualEnabled = v end })
-VisBox:AddSlider("VisualSizeSlider", { Text = "Cylinder Size", Default = 6, Min = 2, Max = 12, Rounding = 1, Callback = function(v) S.VisualSize = v end })
-VisBox:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
-
 local EffectBox = Tabs.Visual:AddRightGroupbox("Effects")
+
 EffectBox:AddToggle("HitSoundToggle", { Text = "Hit Sound", Default = true, Callback = function(v) S.HitSoundEnabled = v end })
 EffectBox:AddDropdown("HitSoundDropdown", {
     Values = { "Bameware", "Bell", "Bubble", "Pick", "Pop", "Rust", "Skeet", "Fatality", "Bonk", "Minecraft" },
@@ -1550,6 +1392,9 @@ EffectBox:AddDropdown("HitEffectDropdown", {
     Default = "Crescent Slash",
     Callback = function(v) S.SelectedHitEffect = v end,
 })
+
+local StatsToggle = Tabs.Visual:AddRightGroupbox("Stats")
+StatsToggle:AddToggle("TargetStatsToggle", { Text = "Target Stats", Default = true, Callback = function(v) S.TargetStatsEnabled = v end })
 
 -- MISC
 
@@ -1573,7 +1418,6 @@ MiscBox:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
 MiscBox:AddButton({ Text = "Toggle Menu", Func = function() Library:Toggle() end })
 
 -- AUTO BUY LOGIC
-
 local function SafeFireClickDetector(padName)
     if not padName then return false end
     local function findPad()
@@ -1689,45 +1533,35 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- LOCK BUTTON (text "H" fallback, medium size, no outline)
-
+-- LOCK BUTTON
 local LockGui = inew("ScreenGui", {
     Name = "CrispyLock",
     Parent = CoreGui,
     ResetOnSpawn = false,
 })
 
-local LockBtn = inew("TextButton", {
+local LockBtn = inew("ImageButton", {
     Parent = LockGui,
-    Size = UDim2.new(0, 80, 0, 80),
-    Position = UDim2.new(0.5, -40, 0.5, -40),
-    BackgroundColor3 = Color3.fromRGB(20, 15, 8),
-    BackgroundTransparency = 0.15,
+    Size = UDim2.new(0, 90, 0, 90),
+    Position = UDim2.new(0.5, -45, 0.5, -45),
+    BackgroundTransparency = 1,
+    BackgroundColor3 = Color3.fromRGB(0, 0, 0),
     BorderSizePixel = 0,
-    Text = "H",
-    TextColor3 = Color3.fromRGB(255, 140, 0),
-    TextStrokeTransparency = 0.5,
-    TextStrokeColor3 = Color3.fromRGB(0, 0, 0),
-    Font = Enum.Font.GothamBold,
-    TextSize = 40,
+    Image = "rbxassetid://20260922011221",
+    ImageColor3 = Color3.fromRGB(255, 140, 0),
+    ImageTransparency = 0,
+    ScaleType = Enum.ScaleType.Fit,
     Draggable = true,
     Active = true,
     AutoButtonColor = false,
 })
 
-inew("UICorner", {
-    CornerRadius = UDim.new(0.2, 0),
-    Parent = LockBtn,
-})
-
 local function UpdateLockVisual()
     if not LockBtn then return end
     if Target.Player then
-        LockBtn.BackgroundColor3 = Color3.fromRGB(50, 30, 5)
-        LockBtn.TextColor3 = Color3.fromRGB(120, 255, 120)
+        LockBtn.ImageColor3 = Color3.fromRGB(120, 255, 120)
     else
-        LockBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 8)
-        LockBtn.TextColor3 = Color3.fromRGB(255, 140, 0)
+        LockBtn.ImageColor3 = Color3.fromRGB(255, 140, 0)
     end
 end
 
@@ -1845,5 +1679,3 @@ pcall(function()
     ThemeManager:ApplyToTab(Tabs.Settings)
     SaveManager:LoadAutoloadConfig()
 end)
-
-SafeNotify("crispy.lol loaded")
