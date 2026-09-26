@@ -85,7 +85,6 @@ local S = {
     HitEffectEnabled = true, SelectedHitEffect = "Crescent Slash",
     TargetStatsEnabled = true,
     HitboxEnabled = false, HitboxSize = 10, HitboxTransparency = 0.7,
-    BulletTPEnabled = false, BulletTPDistance = 15,
     Strafe = false, StrafeDist = 5, StrafeSpeed = 6, StrafeHeight = 2,
     ViewTarget = false,
     AutoFood = false, SelectedFood = "[Chicken]",
@@ -740,7 +739,7 @@ if HAS_DRAWING then
 end
 
 -- ============================================================
--- TARGET STATS — Linoria style + Tokyo Night palette
+-- TARGET STATS — Linoria-style with Tokyo Night palette
 -- ============================================================
 local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true })
 
@@ -764,7 +763,7 @@ local TitleText = inew("TextLabel", {
     BackgroundTransparency = 1, Font = FONT, Text = "Target", TextColor3 = TN.text, TextSize = 12,
     TextXAlignment = Enum.TextXAlignment.Left,
 })
-inew("UIStroke", { Parent = TitleText, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+inew("UIStroke", { Parent = TitleText, Color = Color3.fromRGB(0, 0, 0), Thickness = 1 })
 
 local ContentFrame = inew("Frame", {
     Parent = StatsFrame, Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, 0, 0, 0),
@@ -777,9 +776,9 @@ local StatsHeader = inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0
 local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = TN.surf, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
 inew("UIStroke", { Parent = StatsAvatar, Color = TN.border, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
 local StatsName = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 2), Size = UDim2.new(1, -48, 0, 18), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.text, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left })
-inew("UIStroke", { Parent = StatsName, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+inew("UIStroke", { Parent = StatsName, Color = Color3.fromRGB(0, 0, 0), Thickness = 1 })
 local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.sub, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
-inew("UIStroke", { Parent = StatsSub, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+inew("UIStroke", { Parent = StatsSub, Color = Color3.fromRGB(0, 0, 0), Thickness = 1 })
 
 inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = TN.border, BorderSizePixel = 0, LayoutOrder = 2 })
 
@@ -787,7 +786,7 @@ local function MakeStatRow(order, label_text)
     local row = inew("Frame", { Parent = ContentFrame, Size = UDim2.new(1, 0, 0, 15), BackgroundTransparency = 1, LayoutOrder = order })
     inew("TextLabel", { Parent = row, Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = label_text, TextColor3 = TN.sub, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left })
     local val = inew("TextLabel", { Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TN.text, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right })
-    inew("UIStroke", { Parent = val, Color = Color3.fromRGB(0,0,0), Thickness = 1 })
+    inew("UIStroke", { Parent = val, Color = Color3.fromRGB(0, 0, 0), Thickness = 1 })
     return val
 end
 
@@ -827,9 +826,7 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ============================================================
--- LOCK — WALLCHECK + KNOCKED CHECK, no auto-pick on toggle
--- ============================================================
+-- LOCK
 local function applyLock()
     if Target.Player then return end
     local closest, best = nil, math.huge
@@ -877,7 +874,7 @@ local function toggleLock()
     end)
 end
 
--- hook cache precompute
+-- Hook cache
 RunService.RenderStepped:Connect(function()
     local tp = Target.Player
     if not S.Enabled or not tp or not tp.Character then HookCache.active = false; return end
@@ -898,7 +895,7 @@ RunService.RenderStepped:Connect(function()
     HookCache.active = true
 end)
 
--- CAMLOCK — honor's exact logic, no Scriptable
+-- CAMLOCK — honor's exact logic
 RunService.RenderStepped:Connect(function()
     if not S.Camlock then return end
     if not CamlockTarget or not CamlockTarget.Parent then return end
@@ -914,7 +911,7 @@ RunService.RenderStepped:Connect(function(dt)
     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
 end)
 
--- hooks
+-- Hooks
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
     if checkcaller() or not HookCache.active then return oldnc(self_, ...) end
@@ -1005,7 +1002,11 @@ TargetAimBox:AddButton({
     Func = function()
         pcall(toggleLock)
         if LockBtn then
-            LockBtn.ImageColor3 = Target.Player and Color3.fromRGB(120, 255, 120) or TN.accent
+            if Target.Player then
+                LockBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 60)
+            else
+                LockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            end
         end
     end,
 })
@@ -1035,11 +1036,7 @@ HitboxBox:AddToggle("HitboxToggle", { Text = "Enable Hitbox Expander", Default =
 HitboxBox:AddSlider("HitboxSize", { Text = "Hitbox Size", Default = 10, Min = 1, Max = 50, Rounding = 0, Callback = function(v) S.HitboxSize = v end })
 HitboxBox:AddSlider("HitboxTransparency", { Text = "Hitbox Transparency", Default = 0.7, Min = 0, Max = 1, Rounding = 2, Callback = function(v) S.HitboxTransparency = v end })
 
-local BulletTPBox = Tabs.Ragebot:AddLeftGroupbox("Bullet TP")
-BulletTPBox:AddToggle("BulletTPToggle", { Text = "Enable Bullet TP", Default = false, Callback = function(v) S.BulletTPEnabled = v end })
-BulletTPBox:AddSlider("BulletTPDistanceSlider", { Text = "TP Distance", Default = 15, Min = 1, Max = 50, Rounding = 0, Suffix = " studs", Callback = function(v) S.BulletTPDistance = v end })
-
--- HITBOX
+-- HITBOX LOGIC
 local HitboxCache = {}
 RunService.Heartbeat:Connect(function()
     if not S.HitboxEnabled then
@@ -1085,73 +1082,6 @@ RunService.Heartbeat:Connect(function()
         end
     end
 end)
-
--- BULLET TP
-local bulletTP_toolConn, bulletTP_addConn
-local function BulletTP_GetTarget()
-    local closest, shortest = nil, math.huge
-    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            local part = plr.Character:FindFirstChild("HumanoidRootPart")
-            if hum and hum.Health > 0 and part then
-                local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    local dist = (Vector2.new(screen.X, screen.Y) - center).Magnitude
-                    if dist < shortest then shortest = dist; closest = plr.Character end
-                end
-            end
-        end
-    end
-    return closest
-end
-
-local function BulletTP_Snap(tool)
-    if not S.BulletTPEnabled then return end
-    local target = BulletTP_GetTarget()
-    if not target then return end
-    local targetPart = target:FindFirstChild("HumanoidRootPart")
-    if not targetPart then return end
-    local char = LP.Character
-    if not char then return end
-    local rightHand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
-    if not rightHand then return end
-    local vel = targetPart.AssemblyLinearVelocity
-    local predPos = targetPart.Position + Vector3.new(vel.X * 0.1, vel.Y * 0.1, vel.Z * 0.1)
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    local dir = (predPos - root.Position).Unit
-    local distance = S.BulletTPDistance or 15
-    local targetCF = CFrame.new(predPos - dir * distance)
-    local oldGrip = tool.Grip
-    tool.Parent = LP.Backpack
-    rightHand.Anchored = false
-    tool.Grip = (rightHand.CFrame * CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)):ToObjectSpace(targetCF):Inverse()
-    rightHand.Anchored = true
-    tool.Parent = char
-    task.wait()
-    tool.Parent = LP.Backpack
-    rightHand.Anchored = false
-    tool.Grip = oldGrip
-    tool.Parent = char
-end
-
-local function BulletTP_Setup(character)
-    if bulletTP_toolConn then bulletTP_toolConn:Disconnect(); bulletTP_toolConn = nil end
-    if bulletTP_addConn then bulletTP_addConn:Disconnect(); bulletTP_addConn = nil end
-    local function onTool(tool)
-        if tool:IsA("Tool") and S.BulletTPEnabled then
-            bulletTP_toolConn = tool.Activated:Connect(function() pcall(function() BulletTP_Snap(tool) end) end)
-        end
-    end
-    for _, tool in ipairs(character:GetChildren()) do
-        if tool:IsA("Tool") then onTool(tool) end
-    end
-    bulletTP_addConn = character.ChildAdded:Connect(function(c) if c:IsA("Tool") then onTool(c) end end)
-end
-if LP.Character then BulletTP_Setup(LP.Character) end
-LP.CharacterAdded:Connect(function(char) task.wait(0.5); BulletTP_Setup(char) end)
 
 -- VISUAL
 local VisualBox = Tabs.Visual:AddLeftGroupbox("ESP")
@@ -1224,7 +1154,7 @@ local MiscBox = Tabs.Misc:AddLeftGroupbox("Misc")
 MiscBox:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
 MiscBox:AddButton({ Text = "Toggle Menu", Func = function() Library:Toggle() end })
 
--- AUTO BUY LOGIC (improved path search)
+-- AUTO BUY
 local function SafeFireClickDetector(padName)
     if not padName then return false end
     local function tryClick(obj)
@@ -1338,43 +1268,43 @@ RunService.RenderStepped:Connect(function()
     else stompFirstFired = false end
 end)
 
--- LOCK BUTTON
-local LockGui = inew("ScreenGui", { Name = "CrispyLock", Parent = CoreGui, ResetOnSpawn = false, IgnoreGuiInset = true })
-local LockBtn = inew("ImageButton", {
-    Parent = LockGui,
-    Size = UDim2.new(0, 90, 0, 90),
-    Position = UDim2.new(0.5, -45, 0.5, -45),
-    BackgroundTransparency = 1,
-    BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-    BorderSizePixel = 0,
-    Image = "rbxassetid://137122449494480",
-    ImageColor3 = TN.accent,
-    ImageTransparency = 0,
-    ScaleType = Enum.ScaleType.Fit,
-    Draggable = true,
-    Active = true,
-    AutoButtonColor = false,
-})
+-- LOCK BUTTON (honor style)
+local LockGui = Instance.new("ScreenGui", CoreGui)
+LockGui.Name = "LockGui"
+LockGui.ResetOnSpawn = false
 
-local function UpdateLockVisual()
-    if not LockBtn then return end
-    if Target.Player then
-        LockBtn.ImageColor3 = Color3.fromRGB(120, 255, 120)
-    else
-        LockBtn.ImageColor3 = TN.accent
-    end
-end
+local LockBtn = Instance.new("ImageButton", LockGui)
+LockBtn.Size = UDim2.new(0, 90, 0, 90)
+LockBtn.Position = UDim2.new(0.5, -45, 0.5, -45)
+LockBtn.BackgroundTransparency = 0.35
+LockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+LockBtn.Image = "rbxassetid://137122449494480"
+LockBtn.Draggable = true
+LockBtn.Active = true
+Instance.new("UICorner", LockBtn).CornerRadius = UDim.new(0.2, 0)
 
 LockBtn.MouseButton1Click:Connect(function()
     pcall(toggleLock)
-    pcall(UpdateLockVisual)
+    if LockBtn then
+        if Target.Player then
+            LockBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 60)
+        else
+            LockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        end
+    end
 end)
 
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == Enum.KeyCode.H then
         pcall(toggleLock)
-        pcall(UpdateLockVisual)
+        if LockBtn then
+            if Target.Player then
+                LockBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 60)
+            else
+                LockBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            end
+        end
     end
 end)
 
