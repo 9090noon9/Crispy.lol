@@ -26,13 +26,20 @@ local Library      = loadstring(game:HttpGet(repo .. "Library.lua"))()
 local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
 local SaveManager  = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
--- Default Linoria theme (no override)
+-- Linoria default purple theme (already set by library, we just ensure it)
 pcall(function()
-    if Library.ChangeTheme then
-        for k, v in pairs(Library.Theme or {}) do
-            pcall(function() Library:ChangeTheme(k, v) end)
-        end
-    end
+    Library.Theme = Library.Theme or {
+        Background = Color3.fromRGB(15, 15, 20),
+        Inline = Color3.fromRGB(20, 20, 25),
+        PageBackground = Color3.fromRGB(30, 30, 35),
+        Border = Color3.fromRGB(10, 10, 10),
+        Outline = Color3.fromRGB(27, 27, 32),
+        Accent = Color3.fromRGB(235, 157, 255),
+        Element = Color3.fromRGB(33, 33, 36),
+        HoveredElement = Color3.fromRGB(40, 40, 43),
+        Text = Color3.fromRGB(215, 215, 215),
+        TextBorder = Color3.fromRGB(0, 0, 0),
+    }
 end)
 
 local PingSets = {
@@ -54,12 +61,11 @@ local DistanceSets = {
 local S = {
     Enabled = true, JumpOffset = 0,
     Camlock = false, CamSmooth = 0.15, CamPred = 0.13, CamJump = 0,
-    LockMethod = "Mouse", AimPart = "UpperTorso",
-    AutoPrediction = false, AntiGround = false,
+    AimPart = "UpperTorso",
+    AutoPrediction = false,
     PingSetsEnabled = false, DistSetsEnabled = false,
-    Silent = false, SilentPred = 0.1355, Hitchance = 100, AirHitchance = 100,
-    SilentAutoPred = true, SilentAntiGround = true, SilentAimPart = "HumanoidRootPart",
-    AutoAir = false, AutoAirPart = "LowerTorso", AutoAirPred = 0.1, AutoAirSmooth = 0.1,
+    Silent = false, SilentAimPart = "HumanoidRootPart",
+    AutoAir = false, AutoAirPart = "LowerTorso",
     Rotate360 = false, Rotate360Speed = 10000,
     VisualEnabled = true,
     HitSoundEnabled = true, SelectedHitSound = "Skeet",
@@ -81,7 +87,6 @@ local Target        = { Player = nil, HRP = nil }
 local CamlockTarget = nil
 local CurrentTool   = nil
 local StrafeAngle   = 0
-local AirDebounce   = false
 
 local HookCache = { active = false, predPos = Vector3.new(0, 0, 0), targetHRP = nil }
 
@@ -251,7 +256,6 @@ do
         if not cam then return nil, false, 0 end
         local sp, on = cam:WorldToViewportPoint(pos)
         if not sp then return nil, false, 0 end
-        -- WorldToViewportPoint already accounts for gui inset
         return Vector2.new(sp.X, sp.Y), on, sp.Z
     end
 
@@ -289,7 +293,6 @@ do
 
         local cache = { box = {}, bars = {}, text = {}, chams = {}, parts = {}, skeleton = {} }
 
-        -- IgnoreGuiInset = true so we use WorldToViewportPoint directly
         local box_gui = inew("ScreenGui", { Name = player.Name .. "_BoxGui", ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = self.vars.core_gui, ResetOnSpawn = false, IgnoreGuiInset = true })
         local box_frame = inew("Frame", { BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = ESP.box.transparency, BorderSizePixel = 0, Parent = box_gui, ZIndex = 5 })
         inew("UIGradient", { Parent = box_frame, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, ESP.box.gradient.top_color), ColorSequenceKeypoint.new(1, ESP.box.gradient.bottom_color) }), Rotation = ESP.box.gradient.rotation })
@@ -706,18 +709,15 @@ if HAS_DRAWING then
     end)
 end
 
--- ============================================================
--- TARGET STATS — Linoria default theme, Code font
--- ============================================================
-local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true })
-
+-- Target stats — Linoria default theme, Code font
 local Theme = Library.Theme or {}
-local BG_COLOR     = Theme["Background"]      or Color3.fromRGB(15, 15, 20)
-local ACCENT_COLOR = Theme["Accent"]          or Color3.fromRGB(235, 157, 255)
-local TEXT_COLOR   = Theme["Text"]            or Color3.fromRGB(215, 215, 215)
-local ELEM_COLOR   = Theme["Element"]         or Color3.fromRGB(33, 33, 36)
-local OUTLINE_COLOR= Theme["Outline"]         or Color3.fromRGB(27, 27, 32)
+local BG_COLOR      = Theme["Background"] or Color3.fromRGB(15, 15, 20)
+local ACCENT_COLOR  = Theme["Accent"]     or Color3.fromRGB(235, 157, 255)
+local TEXT_COLOR    = Theme["Text"]       or Color3.fromRGB(215, 215, 215)
+local ELEM_COLOR    = Theme["Element"]    or Color3.fromRGB(33, 33, 36)
+local OUTLINE_COLOR = Theme["Outline"]    or Color3.fromRGB(27, 27, 32)
 
+local StatsGui = inew("ScreenGui", { Name = "CrispyStats", Parent = CoreGui, ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, IgnoreGuiInset = true })
 local StatsFrame = inew("Frame", {
     Parent = StatsGui,
     AnchorPoint = Vector2.new(0.5, 0),
@@ -733,54 +733,20 @@ inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 2), BackgroundCol
 inew("UIPadding", { Parent = StatsFrame, PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) })
 inew("UIListLayout", { Parent = StatsFrame, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder })
 
-local StatsHeader = inew("Frame", {
-    Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1,
-})
-
-local StatsAvatar = inew("ImageLabel", {
-    Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), Position = UDim2.new(0, 0, 0, 0),
-    BackgroundColor3 = ELEM_COLOR, BorderSizePixel = 0,
-    Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-})
+local StatsHeader = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1, LayoutOrder = 1 })
+local StatsAvatar = inew("ImageLabel", { Parent = StatsHeader, Size = UDim2.new(0, 40, 0, 40), BackgroundColor3 = ELEM_COLOR, BorderSizePixel = 0, Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" })
 inew("UIStroke", { Parent = StatsAvatar, Color = ACCENT_COLOR, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
-
-local StatsName = inew("TextLabel", {
-    Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 2), Size = UDim2.new(1, -48, 0, 18),
-    BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 14,
-    TextXAlignment = Enum.TextXAlignment.Left,
-})
-local StatsSub = inew("TextLabel", {
-    Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16),
-    BackgroundTransparency = 1, Font = FONT, Text = "—",
-    TextColor3 = Color3.fromRGB(150, 150, 150), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-})
+local StatsName = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 2), Size = UDim2.new(1, -48, 0, 18), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left })
+local StatsSub = inew("TextLabel", { Parent = StatsHeader, Position = UDim2.new(0, 48, 0, 20), Size = UDim2.new(1, -48, 0, 16), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = Color3.fromRGB(150, 150, 150), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
 
 local function MakeSeparator(order)
-    inew("Frame", {
-        Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 1),
-        BackgroundColor3 = OUTLINE_COLOR, BorderSizePixel = 0, LayoutOrder = order,
-    })
+    inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = OUTLINE_COLOR, BorderSizePixel = 0, LayoutOrder = order })
 end
-
 local function MakeStatRow(order, label_text)
-    local row = inew("Frame", {
-        Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 16),
-        BackgroundTransparency = 1, LayoutOrder = order,
-    })
-    inew("Frame", {
-        Parent = row, Size = UDim2.new(0, 3, 0, 12), Position = UDim2.new(0, 0, 0.5, -6),
-        BackgroundColor3 = ACCENT_COLOR, BorderSizePixel = 0,
-    })
-    inew("TextLabel", {
-        Parent = row, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(0.5, 0, 1, 0),
-        BackgroundTransparency = 1, Font = FONT, Text = label_text,
-        TextColor3 = Color3.fromRGB(160, 160, 160), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-    })
-    return inew("TextLabel", {
-        Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0),
-        BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Right,
-    })
+    local row = inew("Frame", { Parent = StatsFrame, Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, LayoutOrder = order })
+    inew("Frame", { Parent = row, Size = UDim2.new(0, 3, 0, 12), Position = UDim2.new(0, 0, 0.5, -6), BackgroundColor3 = ACCENT_COLOR, BorderSizePixel = 0 })
+    inew("TextLabel", { Parent = row, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = label_text, TextColor3 = Color3.fromRGB(160, 160, 160), TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left })
+    return inew("TextLabel", { Parent = row, Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Font = FONT, Text = "—", TextColor3 = TEXT_COLOR, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right })
 end
 
 MakeSeparator(2)
@@ -821,11 +787,7 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ============================================================
--- LOCK + CAMLOCK (using honor's exact Lerp)
--- ============================================================
-local DEFAULT_CAMERA_TYPE = Camera.CameraType
-
+-- Lock functions
 local function applyLock()
     if Target.Player then return end
     local closest, best = nil, math.huge
@@ -859,7 +821,6 @@ local function releaseLock()
     CurrentTarget.HRP = nil
     CamlockTarget = nil
     S.Camlock = false
-    Camera.CameraType = DEFAULT_CAMERA_TYPE
 end
 
 local function toggleLock()
@@ -869,7 +830,7 @@ local function toggleLock()
     end)
 end
 
--- HOOK CACHE — precompute everything outside hook
+-- Hook cache precompute
 RunService.RenderStepped:Connect(function()
     local tp = Target.Player
     if not S.Enabled or not tp or not tp.Character then HookCache.active = false; return end
@@ -890,14 +851,14 @@ RunService.RenderStepped:Connect(function()
     HookCache.active = true
 end)
 
--- CAMLOCK LOOP (honor's code, verbatim logic)
+-- CAMLOCK — honor's exact logic. No Scriptable, no BindToRenderStep.
+-- Lerps Camera.CFrame on RenderStepped, keeps first-person POV intact.
 RunService.RenderStepped:Connect(function()
     if not S.Camlock then return end
     if not CamlockTarget or not CamlockTarget.Parent then return end
     local pred = CamlockTarget.Position
         + CamlockTarget.Velocity * S.CamPred
         + Vector3.new(0, S.CamJump, 0)
-    Camera.CameraType = Enum.CameraType.Scriptable
     Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), S.CamSmooth)
 end)
 
@@ -907,7 +868,7 @@ RunService.RenderStepped:Connect(function(dt)
     Camera.CFrame = Camera.CFrame * CFrame.Angles(0, math.rad(S.Rotate360Speed * dt), 0)
 end)
 
--- HOOKS (no function calls inside)
+-- Hooks
 local oldnc
 oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
     if checkcaller() or not HookCache.active then return oldnc(self_, ...) end
@@ -1196,7 +1157,7 @@ local MiscBox = Tabs.Misc:AddLeftGroupbox("Misc")
 MiscBox:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
 MiscBox:AddButton({ Text = "Toggle Menu", Func = function() Library:Toggle() end })
 
--- AUTO BUY LOGIC
+-- AUTO BUY
 local function SafeFireClickDetector(padName)
     if not padName then return false end
     local function findPad()
@@ -1301,7 +1262,7 @@ RunService.RenderStepped:Connect(function()
     else stompFirstFired = false end
 end)
 
--- LOCK BUTTON (image asset, no outline, 90x90)
+-- LOCK BUTTON
 local LockGui = inew("ScreenGui", { Name = "CrispyLock", Parent = CoreGui, ResetOnSpawn = false, IgnoreGuiInset = true })
 local LockBtn = inew("ImageButton", {
     Parent = LockGui,
@@ -1310,7 +1271,7 @@ local LockBtn = inew("ImageButton", {
     BackgroundTransparency = 1,
     BackgroundColor3 = Color3.fromRGB(0, 0, 0),
     BorderSizePixel = 0,
-    Image = "rbxassetid://20260922011221",
+    Image = "rbxassetid://137122449494480",
     ImageColor3 = Color3.fromRGB(235, 157, 255),
     ImageTransparency = 0,
     ScaleType = Enum.ScaleType.Fit,
@@ -1331,7 +1292,6 @@ end
 LockBtn.MouseButton1Click:Connect(function()
     pcall(toggleLock)
     pcall(UpdateLockVisual)
-    if S.Camlock and not Target.Player then S.Camlock = false end
 end)
 
 UIS.InputBegan:Connect(function(input, gpe)
@@ -1339,7 +1299,6 @@ UIS.InputBegan:Connect(function(input, gpe)
     if input.KeyCode == Enum.KeyCode.H then
         pcall(toggleLock)
         pcall(UpdateLockVisual)
-        if S.Camlock and not Target.Player then S.Camlock = false end
     end
 end)
 
