@@ -3,6 +3,7 @@ _G.CRISPY_LOADED = true
 pcall(function() if setfpscap then setfpscap(240) end end)
 repeat task.wait() until game:IsLoaded()
 
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
