@@ -1,0 +1,1124 @@
+if _G.CRISPY_LOADED then return end
+_G.CRISPY_LOADED = true
+pcall(function() if setfpscap then setfpscap(240) end end)
+repeat task.wait() until game:IsLoaded()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+local CoreGui = (gethui and gethui()) or game:GetService("CoreGui")
+local LP = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = LP:GetMouse()
+
+local repo = "https://raw.githubusercontent.com/LionTheGreatRealFrFr/MobileLinoriaLib/main/"
+local Library = loadstring(game:HttpGet(repo.."Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
+
+local HAS_DRAWING = pcall(function() local s = Drawing.new("Square"); s:Remove() end)
+
+local S = {
+    Enabled=true, Prediction=0.13, JumpOffset=0,
+    Camlock=false, CamSmooth=0.15, CamPred=0.13, CamJump=0,
+    AutoSelect=false, Strafe=false, StrafeDist=5, StrafeSpeed=6, StrafeHeight=2,
+    ViewTarget=false, AutoAir=false, AutoAirDelay=0.1,
+    Silent=false, SilentBone="Head",
+    VisualEnabled=true, VisualSize=6,
+    HitSoundEnabled=true, SelectedHitSound="Skeet",
+    HitEffectEnabled=true, SelectedHitEffect="Crescent Slash",
+    TargetStatsEnabled=true,
+    TargetAimBone="Head",
+    PingAim=false, PingRef=50, PingMult=0.002,
+    DistanceAim=false, DistNear=50, DistFar=300, DistNearMult=0.5, DistFarMult=2.0,
+}
+
+local CurrentTarget = {Player=nil, HRP=nil}
+local Target = {Player=nil, HRP=nil}
+local CamlockTarget = nil
+local CurrentTool = nil
+local Cylinder = nil
+local StrafeAngle = 0
+local AirDebounce = false
+
+local HitParts = {
+    "Head","Neck","UpperTorso","LowerTorso",
+    "LeftUpperArm","LeftLowerArm","LeftHand",
+    "RightUpperArm","RightLowerArm","RightHand",
+    "LeftUpperLeg","LeftLowerLeg","LeftFoot",
+    "RightUpperLeg","RightLowerLeg","RightFoot",
+    "HumanoidRootPart","Closest Part",
+}
+
+local function inew(c, p)
+    local o = Instance.new(c)
+    for k, v in pairs(p or {}) do o[k] = v end
+    return o
+end
+
+local function GetTargetPart(plr)
+    if not plr or not plr.Character then return nil end
+    local char = plr.Character
+    if S.TargetAimBone == "Closest Part" then
+        local cam = Workspace.CurrentCamera
+        if not cam then return char:FindFirstChild("HumanoidRootPart") end
+        local center = cam.ViewportSize / 2
+        local best, bestPart = math.huge, nil
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                local pos, on = cam:WorldToViewportPoint(part.Position)
+                if on then
+                    local m = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    if m < best then best = m; bestPart = part end
+                end
+            end
+        end
+        return bestPart or char:FindFirstChild("HumanoidRootPart")
+    end
+    return char:FindFirstChild(S.TargetAimBone) or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetDynamicPrediction(targetPart)
+    local pred = S.Prediction
+    if S.PingAim then
+        local ping = 0
+        pcall(function()
+            ping = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue() or 0
+        end)
+        pred = pred + ((ping - S.PingRef) / 1000) * S.PingMult
+    end
+    if S.DistanceAim and targetPart then
+        local myChar = LP.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if myHRP then
+            local dist = (myHRP.Position - targetPart.Position).Magnitude
+            local a = math.clamp((dist - S.DistNear) / math.max(S.DistFar - S.DistNear, 1), 0, 1)
+            pred = pred * (S.DistNearMult + (S.DistFarMult - S.DistNearMult) * a)
+        end
+    end
+    return math.clamp(pred, 0, 1)
+end
+
+local Hitsounds = {
+    Bameware="rbxassetid://3124331820", Bell="rbxassetid://6534947240",
+    Bubble="rbxassetid://6534947588", Pick="rbxassetid://1347140027",
+    Pop="rbxassetid://198598793", Rust="rbxassetid://1255040462",
+    Skeet="rbxassetid://5633695679", Fatality="rbxassetid://6534947869",
+    Bonk="rbxassetid://5766898159", Minecraft="rbxassetid://4018616850",
+}
+local HitSoundPlayer = Instance.new("Sound", Workspace)
+HitSoundPlayer.Volume = 0.7
+
+local function PlayHitSound()
+    if not S.HitSoundEnabled then return end
+    local id = Hitsounds[S.SelectedHitSound]
+    if id then
+        HitSoundPlayer.SoundId = id
+        HitSoundPlayer.TimePosition = 0
+        HitSoundPlayer:Play()
+    end
+end
+
+local function HitEffect(position)
+    if not S.HitEffectEnabled then return end
+    local part = inew("Part", {Position=position, Anchored=true, Transparency=1, CanCollide=false, Parent=Workspace})
+    local att = inew("Attachment", {Parent=part})
+    local col = Color3.fromRGB(91,177,252)
+    if S.SelectedHitEffect == "Cum" then
+        local e = inew("ParticleEmitter", {
+            LightInfluence=0.5, Lifetime=NumberRange.new(1,1), SpreadAngle=Vector2.new(360,-360),
+            Speed=NumberRange.new(20,20), Brightness=2.5, Rate=100,
+            Texture="rbxassetid://8297030850", Acceleration=Vector3.new(0,-66,0),
+            Orientation=Enum.ParticleOrientation.VelocityParallel, Parent=att,
+        })
+        e:Emit()
+    elseif S.SelectedHitEffect == "Confetti" then
+        for _, c in ipairs({Color3.new(0,1,0.88),Color3.new(0,0.1,1),Color3.new(0.9,1,0),Color3.new(1,0,0)}) do
+            local e = inew("ParticleEmitter", {
+                Acceleration=Vector3.new(0,-10,0), Color=ColorSequence.new(c),
+                Lifetime=NumberRange.new(1,2), RotSpeed=NumberRange.new(260,260),
+                Size=NumberSequence.new(0.1), Speed=NumberRange.new(15,15),
+                SpreadAngle=Vector2.new(360,360), Texture="rbxassetid://241685484", Parent=att,
+            })
+            e:Emit(1)
+        end
+    elseif S.SelectedHitEffect == "Bubble" then
+        local e = inew("ParticleEmitter", {
+            Color=ColorSequence.new(col), Lifetime=NumberRange.new(0.5,0.5),
+            LightEmission=1, Rate=0, Size=NumberSequence.new(0, 10),
+            Speed=NumberRange.new(1.5,1.5), Texture="rbxassetid://1084991215", Parent=att,
+        })
+        e:Emit(1)
+    else
+        local e1 = inew("ParticleEmitter", {
+            Lifetime=NumberRange.new(0.16,0.16), Color=ColorSequence.new(col),
+            Speed=NumberRange.new(0,0), Brightness=5, Size=NumberSequence.new(9.18,16.5),
+            Rate=50, Texture="rbxassetid://8708637750", Parent=att,
+        })
+        local e2 = inew("ParticleEmitter", {
+            Lifetime=NumberRange.new(0.19,0.38), SpreadAngle=Vector2.new(-360,360),
+            LightEmission=10, Color=ColorSequence.new(col), Speed=NumberRange.new(0.08,0.08),
+            Brightness=4, Rate=50, Texture="rbxassetid://12509373457",
+            Rotation=NumberRange.new(-360,360), Orientation=Enum.ParticleOrientation.VelocityPerpendicular, Parent=att,
+        })
+        e1:Emit(50); e2:Emit(50)
+    end
+    task.delay(2, function() if part then part:Destroy() end end)
+end
+
+local ESP = {
+    visuals_enabled=true,
+    box={enabled=false, filled=false, color=Color3.fromRGB(0,150,255), outline_color=Color3.fromRGB(0,0,0),
+        transparency=0.6, thickness=1.5,
+        gradient={enabled=true, top_color=Color3.fromRGB(0,9,139), bottom_color=Color3.fromRGB(255,255,255), rotation=90, rotation_speed=9}},
+    skeleton={enabled=false, color=Color3.fromRGB(255,255,255), thickness=1.2, transparency=0.15,
+        outline={enabled=false, color=Color3.fromRGB(0,0,0), thickness=2.5}},
+    health_bar={enabled=false, width=1,
+        text={enabled=false, show_numeric=false, color=Color3.fromRGB(255,255,255), outline_color=Color3.fromRGB(0,0,0), size=12},
+        gradient={enabled=true, top_color=Color3.fromRGB(0,255,0), bottom_color=Color3.fromRGB(255,0,0), rotation=90}},
+    armor_bar={enabled=false, width=1, max_armor=100,
+        text={enabled=false, show_numeric=false, color=Color3.fromRGB(255,255,255), outline_color=Color3.fromRGB(0,0,0), size=12},
+        gradient={enabled=true, top_color=Color3.fromRGB(0,100,255), bottom_color=Color3.fromRGB(100,150,255), rotation=90}},
+    labels={
+        name={enabled=false, color=Color3.fromRGB(255,255,255), outline_color=Color3.fromRGB(0,0,0), size=14},
+        distance={enabled=false, color=Color3.fromRGB(200,200,200), outline_color=Color3.fromRGB(0,0,0), size=12},
+        tool={enabled=false, color=Color3.fromRGB(255,255,150), outline_color=Color3.fromRGB(0,0,0), size=11},
+        display_name={enabled=false, color=Color3.fromRGB(255,255,0), outline_color=Color3.fromRGB(0,0,0), size=13},
+    },
+    chams={enabled=false, fill_color=Color3.fromRGB(0,150,255), outline_color=Color3.fromRGB(255,255,255), fill_transparency=0.5, outline_transparency=0},
+    fov={enabled=false, radius=150, color=Color3.fromRGB(0,150,255), outline_color=Color3.fromRGB(0,0,0), thickness=1, transparency=0.4, filled=false},
+    fonts={labels=Enum.Font.Gotham},
+}
+
+local esp
+do
+    local self = {}
+    esp = self
+    self.vars = {
+        players=Players, rs=RunService, gs=GuiService, uis=UIS,
+        core_gui=CoreGui, local_player=LP, camera=Camera,
+    }
+    self.cache = {}
+    self.skeleton_conns = {
+        {from="Head",to="Neck"},{from="Neck",to="UpperTorso"},{from="UpperTorso",to="LowerTorso"},
+        {from="LowerTorso",to="LeftUpperLeg"},{from="LowerTorso",to="RightUpperLeg"},
+        {from="LeftUpperLeg",to="LeftLowerLeg"},{from="RightUpperLeg",to="RightLowerLeg"},
+        {from="LeftLowerLeg",to="LeftFoot"},{from="RightLowerLeg",to="RightFoot"},
+        {from="UpperTorso",to="LeftUpperArm"},{from="UpperTorso",to="RightUpperArm"},
+        {from="LeftUpperArm",to="LeftLowerArm"},{from="RightUpperArm",to="RightLowerArm"},
+        {from="LeftLowerArm",to="LeftHand"},{from="RightLowerArm",to="RightHand"},
+    }
+    self.gui_inset = self.vars.gs:GetGuiInset()
+    self.funcs = {}
+
+    self.funcs.get_font = function(f)
+        if not f then f = Enum.Font.Gotham end
+        if typeof(f) == "EnumItem" then
+            local ok, o = pcall(function() if Font.fromEnum then return Font.fromEnum(f) end end)
+            if ok and o then return o end
+        end
+        return f
+    end
+
+    self.funcs.to_screen = function(pos)
+        local cam = self.vars.camera
+        if not cam then return nil,false,0 end
+        local sp, on = cam:WorldToViewportPoint(pos)
+        if not sp then return nil,false,0 end
+        return Vector2.new(sp.X, sp.Y), on, sp.Z
+    end
+
+    self.funcs.calc_box = function(pos)
+        local cam = self.vars.camera
+        if not cam then return nil,nil,false,false end
+        local dist = (cam.CFrame.Position - pos).Magnitude
+        if dist < 0.1 or dist > 6e9 then return nil,nil,false,false end
+        local up = CFrame.new(pos)
+        local v_top = pos + (up.UpVector * 1.8) + cam.CFrame.UpVector
+        local v_bot = pos - (up.UpVector * 2.5) - cam.CFrame.UpVector
+        local top, tr, tz = self.funcs.to_screen(v_top)
+        local bot, br, bz = self.funcs.to_screen(v_bot)
+        if not top or not bot or tz <= 0 or bz <= 0 then return nil,nil,false,false end
+        local w = math.max(math.floor(math.abs(top.X - bot.X)), 3)
+        local h = math.max(math.floor(math.max(math.abs(bot.Y - top.Y), w/2)), 3)
+        local size = Vector2.new(math.floor(math.max(h/1.5, w)), h)
+        local bpos = Vector2.new(math.floor(top.X*0.5 + bot.X*0.5 - size.X*0.5), math.floor(math.min(top.Y, bot.Y)))
+        return size, bpos, br, tr
+    end
+
+    self.funcs.make_text = function(parent)
+        local l = inew("TextLabel", {
+            Parent=parent, Size=UDim2.new(0,200,0,20), BackgroundTransparency=1,
+            TextColor3=Color3.fromRGB(255,255,255), TextStrokeTransparency=0, TextSize=12,
+            TextStrokeColor3=Color3.fromRGB(0,0,0),
+            TextXAlignment=Enum.TextXAlignment.Center, TextYAlignment=Enum.TextYAlignment.Center,
+        })
+        local f = self.funcs.get_font(ESP.fonts.labels)
+        pcall(function() l.FontFace = f end)
+        return l
+    end
+
+    self.funcs.create_cache = function(player)
+        if not player then return end
+        if self.cache[player] and self.cache[player].box and self.cache[player].box.full then return end
+        local cache = {box={}, bars={}, text={}, chams={}, parts={}, skeleton_frame_skip=0, gradient_rotation=ESP.box.gradient.rotation}
+
+        if HAS_DRAWING then
+            cache.box.full = {square=Drawing.new("Square"), outline=Drawing.new("Square")}
+            cache.skeleton = {}
+            for i = 1, #self.skeleton_conns do
+                cache.skeleton[i] = {line=Drawing.new("Line"), outline=Drawing.new("Line")}
+            end
+        else
+            cache.box.full = {square=nil, outline=nil}
+            cache.skeleton = {}
+        end
+
+        local box_gui = inew("ScreenGui", {Name=player.Name.."_BoxGui", ZIndexBehavior=Enum.ZIndexBehavior.Sibling, Parent=self.vars.core_gui})
+        local box_frame = inew("Frame", {BackgroundColor3=Color3.new(1,1,1), BackgroundTransparency=ESP.box.transparency, BorderSizePixel=0, Parent=box_gui})
+        inew("UIGradient", {Parent=box_frame,
+            Color=ColorSequence.new({ColorSequenceKeypoint.new(0,ESP.box.gradient.top_color),ColorSequenceKeypoint.new(1,ESP.box.gradient.bottom_color)}),
+            Rotation=ESP.box.gradient.rotation})
+        cache.box.full.gui = box_gui
+        cache.box.full.frame = box_frame
+
+        local studs_gui = inew("ScreenGui", {Parent=self.vars.core_gui, Name=player.Name.."_Studs"})
+        local name_gui = inew("ScreenGui", {Parent=self.vars.core_gui, Name=player.Name.."_Name"})
+        local tool_gui = inew("ScreenGui", {Parent=self.vars.core_gui, Name=player.Name.."_Tool"})
+        local disp_gui = inew("ScreenGui", {Parent=self.vars.core_gui, Name=player.Name.."_Disp"})
+        cache.text.studs = self.funcs.make_text(studs_gui)
+        cache.text.tool = self.funcs.make_text(tool_gui)
+        cache.text.name = self.funcs.make_text(name_gui)
+        cache.text.display_name = self.funcs.make_text(disp_gui)
+
+        local h_gui = inew("ScreenGui", {Name=player.Name.."_HBar", ZIndexBehavior=Enum.ZIndexBehavior.Sibling, Parent=self.vars.core_gui})
+        local h_out = inew("Frame", {BackgroundColor3=Color3.new(0,0,0), BorderSizePixel=0, Parent=h_gui})
+        local h_fill = inew("Frame", {BackgroundColor3=Color3.new(1,1,1), BorderSizePixel=0, Parent=h_out})
+        inew("UIGradient", {Parent=h_fill,
+            Color=ColorSequence.new({ColorSequenceKeypoint.new(0,ESP.health_bar.gradient.top_color),ColorSequenceKeypoint.new(1,ESP.health_bar.gradient.bottom_color)}),
+            Rotation=90})
+        local h_text = inew("TextLabel", {BackgroundTransparency=1, TextColor3=Color3.fromRGB(255,255,255), TextStrokeTransparency=0,
+            TextStrokeColor3=Color3.fromRGB(0,0,0), TextSize=10,
+            TextXAlignment=Enum.TextXAlignment.Center, TextYAlignment=Enum.TextYAlignment.Center, Parent=h_fill})
+        cache.bars.health = {gui=h_gui, outline=h_out, frame=h_fill, text=h_text, last_health=1}
+
+        local a_gui = inew("ScreenGui", {Name=player.Name.."_ABar", ZIndexBehavior=Enum.ZIndexBehavior.Sibling, Parent=self.vars.core_gui})
+        local a_out = inew("Frame", {BackgroundColor3=Color3.new(0,0,0), BorderSizePixel=0, Parent=a_gui})
+        local a_fill = inew("Frame", {BackgroundColor3=Color3.new(1,1,1), BorderSizePixel=0, Parent=a_out})
+        inew("UIGradient", {Parent=a_fill,
+            Color=ColorSequence.new({ColorSequenceKeypoint.new(0,ESP.armor_bar.gradient.top_color),ColorSequenceKeypoint.new(1,ESP.armor_bar.gradient.bottom_color)}),
+            Rotation=90})
+        local a_text = inew("TextLabel", {BackgroundTransparency=1, TextColor3=Color3.fromRGB(255,255,255), TextStrokeTransparency=0,
+            TextStrokeColor3=Color3.fromRGB(0,0,0), TextSize=10,
+            TextXAlignment=Enum.TextXAlignment.Center, TextYAlignment=Enum.TextYAlignment.Center, Parent=a_fill})
+        cache.bars.armor = {gui=a_gui, outline=a_out, frame=a_fill, text=a_text, last_armor=0}
+
+        self.cache[player] = cache
+    end
+
+    self.funcs.clear = function(player)
+        local c = self.cache[player]
+        if not c then return end
+        if c.box and c.box.full then
+            if c.box.full.square then c.box.full.square.Visible = false; c.box.full.square:Remove() end
+            if c.box.full.outline then c.box.full.outline.Visible = false; c.box.full.outline:Remove() end
+            if c.box.full.gui then c.box.full.gui:Destroy() end
+        end
+        if c.skeleton then for _, v in pairs(c.skeleton) do
+            if v.line then v.line.Visible=false; v.line:Remove() end
+            if v.outline then v.outline.Visible=false; v.outline:Remove() end
+        end end
+        if c.text then for _, v in pairs(c.text) do if v then v.Visible=false end end end
+        if c.bars then for _, b in pairs(c.bars) do
+            if b and b.frame then b.frame.Visible=false; b.outline.Visible=false; if b.text then b.text.Visible=false end end
+        end end
+        if c.chams and c.chams.highlight then c.chams.highlight:Destroy() end
+        self.cache[player] = nil
+    end
+
+    self.funcs.hide_all = function(c)
+        local bf = c.box and c.box.full
+        if bf then
+            if bf.square then bf.square.Visible=false end
+            if bf.outline then bf.outline.Visible=false end
+            if bf.frame then bf.frame.Visible=false end
+        end
+        local h = c.bars and c.bars.health
+        if h then h.outline.Visible=false; h.frame.Visible=false; if h.text then h.text.Visible=false end end
+        local a = c.bars and c.bars.armor
+        if a then a.outline.Visible=false; a.frame.Visible=false; if a.text then a.text.Visible=false end end
+        if c.text then for _, v in pairs(c.text) do if v then v.Visible=false end end end
+        if c.skeleton then for _, v in pairs(c.skeleton) do
+            if v.line then v.line.Visible=false end
+            if v.outline then v.outline.Visible=false end
+        end end
+    end
+
+    self.funcs.update_chams = function(player, cache, char)
+        if not char or not ESP.visuals_enabled or not ESP.chams.enabled then
+            if cache.chams and cache.chams.highlight then cache.chams.highlight.Enabled = false end
+            return
+        end
+        if not cache.chams.highlight then
+            cache.chams.highlight = inew("Highlight", {
+                FillColor=ESP.chams.fill_color, OutlineColor=ESP.chams.outline_color,
+                FillTransparency=ESP.chams.fill_transparency, OutlineTransparency=ESP.chams.outline_transparency,
+                Adornee=char, Parent=char,
+            })
+        else
+            local hl = cache.chams.highlight
+            hl.FillColor = ESP.chams.fill_color
+            hl.OutlineColor = ESP.chams.outline_color
+            hl.FillTransparency = ESP.chams.fill_transparency
+            hl.OutlineTransparency = ESP.chams.outline_transparency
+            hl.Enabled = true
+            if hl.Adornee ~= char then hl.Adornee = char end
+            if hl.Parent ~= char then hl.Parent = char end
+        end
+    end
+
+    self.funcs.update_box = function(player, pos, size, cache)
+        local full = cache.box and cache.box.full
+        if not full then return end
+        local square, outline, frame = full.square, full.outline, full.frame
+        if not ESP.visuals_enabled or not ESP.box.enabled then
+            if square then square.Visible=false end
+            if outline then outline.Visible=false end
+            if frame then frame.Visible=false end
+            return
+        end
+        if outline then
+            outline.Visible = true
+            outline.Position = pos - Vector2.new(1,1)
+            outline.Size = size + Vector2.new(2,2)
+            outline.Color = ESP.box.outline_color
+            outline.Thickness = 1
+            outline.Filled = false
+        end
+        if square then
+            square.Visible = true
+            square.Position = pos
+            square.Size = size
+            square.Color = ESP.box.color
+            square.Thickness = ESP.box.filled and 0 or ESP.box.thickness
+            square.Filled = ESP.box.filled
+            square.Transparency = ESP.box.transparency
+        end
+        if frame then
+            if ESP.box.filled then
+                frame.Visible = true
+                frame.Position = UDim2.new(0, pos.X, 0, pos.Y - self.gui_inset.Y)
+                frame.Size = UDim2.new(0, size.X, 0, size.Y)
+                frame.BackgroundTransparency = ESP.box.transparency
+            else
+                frame.Visible = false
+            end
+        end
+    end
+
+    self.funcs.update_labels = function(player, pos, size, cache, char, cam, root)
+        if not ESP.visuals_enabled then
+            for _, v in pairs(cache.text) do if v then v.Visible=false end end
+            return
+        end
+        local nl, tl, sl, dl = cache.text.name, cache.text.tool, cache.text.studs, cache.text.display_name
+        local gi = self.gui_inset
+        local bx = pos.X + size.X/2
+        local cy = pos.Y - 20
+        if ESP.labels.name.enabled or ESP.labels.display_name.enabled then
+            local txt = ESP.labels.name.enabled and player.Name or (player.DisplayName or player.Name)
+            nl.Visible = true; dl.Visible = false
+            nl.Text = txt
+            nl.TextColor3 = ESP.labels.name.color
+            nl.TextStrokeColor3 = ESP.labels.name.outline_color
+            nl.TextSize = ESP.labels.name.size
+            nl.Size = UDim2.new(0,0,0,20)
+            local tw = nl.TextBounds.X
+            nl.Size = UDim2.new(0,tw,0,20)
+            nl.Position = UDim2.new(0, bx - tw/2, 0, cy - gi.Y)
+        else
+            nl.Visible = false; dl.Visible = false
+        end
+        local by = pos.Y + size.Y + 2
+        if ESP.labels.distance.enabled then
+            sl.Visible = true
+            local dist = (cam.CFrame.Position - root.Position).Magnitude * 0.28
+            sl.Text = string.format("[%.0fm]", dist)
+            sl.TextColor3 = ESP.labels.distance.color
+            sl.TextStrokeColor3 = ESP.labels.distance.outline_color
+            sl.TextSize = ESP.labels.distance.size
+            sl.Size = UDim2.new(0,0,0,20)
+            local tw, th = sl.TextBounds.X, sl.TextBounds.Y
+            sl.Size = UDim2.new(0,tw,0,th)
+            sl.Position = UDim2.new(0, bx - tw/2, 0, by - gi.Y)
+        else
+            sl.Visible = false
+        end
+        if ESP.labels.tool.enabled then
+            tl.Visible = true
+            local tool = char:FindFirstChildOfClass("Tool")
+            tl.Text = tool and tool.Name or "none"
+            tl.TextColor3 = ESP.labels.tool.color
+            tl.TextStrokeColor3 = ESP.labels.tool.outline_color
+            tl.TextSize = ESP.labels.tool.size
+            tl.Size = UDim2.new(0,0,0,20)
+            local ttw, tth = tl.TextBounds.X, tl.TextBounds.Y
+            tl.Size = UDim2.new(0,ttw,0,tth)
+            tl.Position = UDim2.new(0, bx - ttw/2, 0, by + (ESP.labels.distance.enabled and 14 or 0) - gi.Y)
+        else
+            tl.Visible = false
+        end
+    end
+
+    self.funcs.cache_character_parts = function(char, cache)
+        cache.parts = cache.parts or {}
+        for k in pairs(cache.parts) do cache.parts[k] = nil end
+        local names = {}
+        for _, c in ipairs(self.skeleton_conns) do names[c.from]=true; names[c.to]=true end
+        for name in pairs(names) do
+            local obj = char:FindFirstChild(name)
+            if obj and obj:IsA("BasePart") then cache.parts[name] = obj
+            elseif obj and obj:IsA("Accessory") then
+                local h = obj:FindFirstChild("Handle")
+                if h then cache.parts[name] = h end
+            end
+        end
+    end
+
+    self.funcs.update_skeleton = function(player, cache, char)
+        if not cache.skeleton then return end
+        if not ESP.visuals_enabled or not ESP.skeleton.enabled then
+            for _, s in pairs(cache.skeleton) do
+                if s.line then s.line.Visible=false end
+                if s.outline then s.outline.Visible=false end
+            end
+            return
+        end
+        if not cache.parts then return end
+        cache.skeleton_frame_skip = (cache.skeleton_frame_skip or 0) + 1
+        if cache.skeleton_frame_skip % 2 ~= 0 then return end
+        local hum = cache.humanoid
+        if not hum or hum.Health <= 0 then
+            for _, s in pairs(cache.skeleton) do
+                if s.line then s.line.Visible=false end
+                if s.outline then s.outline.Visible=false end
+            end
+            return
+        end
+        for i, conn in ipairs(self.skeleton_conns) do
+            local s = cache.skeleton[i]
+            if s and s.line then
+                local fp, tp = cache.parts[conn.from], cache.parts[conn.to]
+                if fp and tp and fp.Parent and tp.Parent then
+                    local fpos, fon = self.funcs.to_screen(fp.Position)
+                    local tpos, ton = self.funcs.to_screen(tp.Position)
+                    if fpos and tpos and fon and ton then
+                        s.line.Visible = true
+                        s.line.From = fpos; s.line.To = tpos
+                        s.line.Color = ESP.skeleton.color
+                        s.line.Thickness = ESP.skeleton.thickness
+                        s.line.Transparency = ESP.skeleton.transparency
+                        if s.outline then
+                            if ESP.skeleton.outline.enabled then
+                                s.outline.Visible = true
+                                s.outline.From = fpos; s.outline.To = tpos
+                                s.outline.Color = ESP.skeleton.outline.color
+                                s.outline.Thickness = ESP.skeleton.outline.thickness
+                                s.outline.Transparency = 0
+                            else s.outline.Visible = false end
+                        end
+                    else
+                        s.line.Visible = false
+                        if s.outline then s.outline.Visible = false end
+                    end
+                else
+                    s.line.Visible = false
+                    if s.outline then s.outline.Visible = false end
+                end
+            end
+        end
+    end
+
+    self.funcs.update_health = function(player, pos, size, cache, hum)
+        if not ESP.visuals_enabled or not ESP.health_bar.enabled or not hum then
+            local h = cache.bars and cache.bars.health
+            if h then h.outline.Visible=false; h.frame.Visible=false; if h.text then h.text.Visible=false end end
+            return
+        end
+        local target = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        local last = cache.bars.health.last_health or target
+        local lerped = last + (target - last) * 0.05
+        cache.bars.health.last_health = lerped
+        local bar_h = size.Y
+        local bar_w = ESP.health_bar.width
+        local x = pos.X - (bar_w + 3)
+        local y = pos.Y - self.gui_inset.Y
+        local o, f, t = cache.bars.health.outline, cache.bars.health.frame, cache.bars.health.text
+        o.Visible = true
+        o.Position = UDim2.new(0, x - 1, 0, y - 1)
+        o.Size = UDim2.new(0, bar_w + 2, 0, bar_h + 2)
+        f.Visible = true
+        f.Position = UDim2.new(0, 1, 0, (1 - lerped) * bar_h + 1)
+        f.Size = UDim2.new(0, bar_w, 0, lerped * bar_h)
+        if t then
+            if ESP.health_bar.text.enabled then
+                local pct = math.floor(target * 100)
+                t.Text = ESP.health_bar.text.show_numeric and (math.floor(hum.Health).."/"..math.floor(hum.MaxHealth)) or (pct.."%")
+                t.Visible = true
+                t.Position = UDim2.new(0, -15, 0, 0)
+                t.Size = UDim2.new(1, 0, 0, 12)
+                t.TextColor3 = ESP.health_bar.text.color
+                t.TextStrokeColor3 = ESP.health_bar.text.outline_color
+                t.TextSize = ESP.health_bar.text.size
+            else t.Visible = false end
+        end
+    end
+
+    self.funcs.update_armor = function(player, pos, size, cache, char)
+        if not ESP.visuals_enabled or not ESP.armor_bar.enabled or not char then
+            local a = cache.bars and cache.bars.armor
+            if a then a.outline.Visible=false; a.frame.Visible=false; if a.text then a.text.Visible=false end end
+            return
+        end
+        local be = char:FindFirstChild("BodyEffects")
+        local av = be and be:FindFirstChild("Armor")
+        if not av then
+            local a = cache.bars and cache.bars.armor
+            if a then a.outline.Visible=false; a.frame.Visible=false; if a.text then a.text.Visible=false end end
+            return
+        end
+        local armor = av.Value or 0
+        local target = math.clamp(armor / ESP.armor_bar.max_armor, 0, 1)
+        local last = cache.bars.armor.last_armor or target
+        local lerped = last + (target - last) * 0.05
+        cache.bars.armor.last_armor = lerped
+        local bar_h = ESP.armor_bar.width
+        local bar_w = size.X
+        local x = pos.X
+        local y = pos.Y - self.gui_inset.Y + size.Y + 3
+        local o, f, t = cache.bars.armor.outline, cache.bars.armor.frame, cache.bars.armor.text
+        o.Visible = true
+        o.Position = UDim2.new(0, x - 1, 0, y - 1)
+        o.Size = UDim2.new(0, bar_w + 2, 0, bar_h + 2)
+        f.Visible = true
+        f.Position = UDim2.new(0, 1, 0, 1)
+        f.Size = UDim2.new(0, lerped * bar_w, 0, bar_h)
+        if t then
+            if ESP.armor_bar.text.enabled then
+                local pct = math.floor(target * 100)
+                t.Text = ESP.armor_bar.text.show_numeric and (math.floor(armor).."/"..ESP.armor_bar.max_armor) or (pct.."%")
+                t.Visible = true
+                t.TextColor3 = ESP.armor_bar.text.color
+                t.TextStrokeColor3 = ESP.armor_bar.text.outline_color
+                t.TextSize = ESP.armor_bar.text.size
+            else t.Visible = false end
+        end
+    end
+
+    self.funcs.update_player = function(player)
+        if not player then return end
+        local cache = self.cache[player]
+        if not cache then self.funcs.create_cache(player); cache = self.cache[player] end
+        if not cache then return end
+        local char = player.Character
+        if not char or not char:IsDescendantOf(Workspace) then
+            self.funcs.hide_all(cache)
+            self.funcs.update_chams(player, cache, nil)
+            return
+        end
+        local root = cache.root
+        if not root or root.Parent ~= char then
+            root = char:FindFirstChild("HumanoidRootPart")
+            cache.root = root
+            self.funcs.cache_character_parts(char, cache)
+        end
+        local hum = cache.humanoid
+        if not hum or hum.Parent ~= char then
+            hum = char:FindFirstChildWhichIsA("Humanoid")
+            cache.humanoid = hum
+        end
+        if not root or not hum then
+            self.funcs.hide_all(cache)
+            return
+        end
+        local cam = self.vars.camera or Workspace.CurrentCamera
+        self.vars.camera = cam
+        if not cam then return end
+        local dist = (cam.CFrame.Position - root.Position).Magnitude
+        if dist > 2000 then
+            self.funcs.hide_all(cache)
+            return
+        end
+        local size, pos, br, tr = self.funcs.calc_box(root.Position)
+        if size and pos and br and tr then
+            self.funcs.update_box(player, pos, size, cache)
+            self.funcs.update_health(player, pos, size, cache, hum)
+            self.funcs.update_armor(player, pos, size, cache, char)
+            self.funcs.update_labels(player, pos, size, cache, char, cam, root)
+            self.funcs.update_skeleton(player, cache, char)
+        else
+            self.funcs.hide_all(cache)
+        end
+        self.funcs.update_chams(player, cache, char)
+    end
+
+    self.funcs.setup_player = function(player)
+        if not player or player == LP then return end
+        self.funcs.create_cache(player)
+        if player.Character then self.funcs.update_player(player) end
+        player.CharacterAdded:Connect(function() task.wait(0.1); self.funcs.update_player(player) end)
+    end
+
+    for _, p in ipairs(Players:GetPlayers()) do self.funcs.setup_player(p) end
+    Players.PlayerAdded:Connect(self.funcs.setup_player)
+    Players.PlayerRemoving:Connect(function(p) self.funcs.clear(p) end)
+
+    RunService.RenderStepped:Connect(function()
+        self.vars.camera = Workspace.CurrentCamera
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP then self.funcs.update_player(p) end
+        end
+    end)
+end
+
+-- FOV CIRCLE
+local FovCircle, FovOutline
+if HAS_DRAWING then
+    FovCircle = Drawing.new("Circle")
+    FovCircle.Thickness = 1; FovCircle.NumSides = 64; FovCircle.Radius = 150; FovCircle.Filled = false
+    FovOutline = Drawing.new("Circle")
+    FovOutline.Thickness = 2; FovOutline.NumSides = 64; FovOutline.Radius = 150; FovOutline.Filled = false
+    RunService.RenderStepped:Connect(function()
+        if not ESP.fov.enabled then
+            FovCircle.Visible = false; FovOutline.Visible = false; return
+        end
+        local m = UIS:GetMouseLocation()
+        FovCircle.Position = Vector2.new(m.X, m.Y)
+        FovCircle.Radius = ESP.fov.radius
+        FovCircle.Color = ESP.fov.color
+        FovCircle.Thickness = ESP.fov.thickness
+        FovCircle.Transparency = 1 - ESP.fov.transparency
+        FovCircle.Filled = ESP.fov.filled
+        FovCircle.Visible = true
+        FovOutline.Position = Vector2.new(m.X, m.Y)
+        FovOutline.Radius = ESP.fov.radius
+        FovOutline.Color = ESP.fov.outline_color
+        FovOutline.Thickness = ESP.fov.thickness + 1
+        FovOutline.Transparency = 1 - ESP.fov.transparency
+        FovOutline.Visible = true
+    end)
+end
+
+-- TARGET STATS (linoria style)
+local StatsGui = inew("ScreenGui", {Name="CrispyStats", Parent=CoreGui, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling})
+local StatsFrame = inew("Frame", {Parent=StatsGui, AnchorPoint=Vector2.new(0.5,0), Position=UDim2.new(0.5,0,0.05,0),
+    Size=UDim2.new(0,320,0,0), AutomaticSize=Enum.AutomaticSize.Y,
+    BackgroundColor3=Library.Theme.Background, BorderSizePixel=0, Visible=false})
+inew("UIStroke", {Parent=StatsFrame, Color=Library.Theme.Accent, Thickness=1, ApplyStrokeMode=Enum.ApplyStrokeMode.Border})
+inew("UICorner", {Parent=StatsFrame, CornerRadius=UDim.new(0,6)})
+inew("Frame", {Parent=StatsFrame, Size=UDim2.new(1,0,0,2), BackgroundColor3=Library.Theme.Accent, BorderSizePixel=0})
+inew("UIPadding", {Parent=StatsFrame, PaddingTop=UDim.new(0,10), PaddingBottom=UDim.new(0,10), PaddingLeft=UDim.new(0,12), PaddingRight=UDim.new(0,12)})
+inew("UIListLayout", {Parent=StatsFrame, Padding=UDim.new(0,6), SortOrder=Enum.SortOrder.LayoutOrder})
+
+local StatsHeader = inew("Frame", {Parent=StatsFrame, Size=UDim2.new(1,0,0,32), BackgroundTransparency=1, LayoutOrder=1})
+local StatsAvatar = inew("ImageLabel", {Parent=StatsHeader, Size=UDim2.new(0,32,0,32),
+    BackgroundColor3=Library.Theme.Element, BorderSizePixel=0, Image="rbxasset://textures/ui/GuiImagePlaceholder.png"})
+inew("UICorner", {Parent=StatsAvatar, CornerRadius=UDim.new(0,4)})
+inew("UIStroke", {Parent=StatsAvatar, Color=Library.Theme.Outline, Thickness=1})
+local StatsName = inew("TextLabel", {Parent=StatsHeader, Position=UDim2.new(0,40,0,0), Size=UDim2.new(1,-40,0,16),
+    BackgroundTransparency=1, Font=Enum.Font.GothamMedium, Text="—", TextColor3=Library.Theme.Text, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left})
+local StatsSub = inew("TextLabel", {Parent=StatsHeader, Position=UDim2.new(0,40,0,16), Size=UDim2.new(1,-40,0,14),
+    BackgroundTransparency=1, Font=Enum.Font.Gotham, Text="—", TextColor3=Color3.fromRGB(150,150,150), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left})
+
+local function MakeRow(order, label)
+    local row = inew("Frame", {Parent=StatsFrame, Size=UDim2.new(1,0,0,14), BackgroundTransparency=1, LayoutOrder=order})
+    inew("TextLabel", {Parent=row, Size=UDim2.new(0.5,0,1,0), BackgroundTransparency=1, Font=Enum.Font.Gotham,
+        Text=label, TextColor3=Color3.fromRGB(160,160,160), TextSize=11, TextXAlignment=Enum.TextXAlignment.Left})
+    return inew("TextLabel", {Parent=row, Position=UDim2.new(0.5,0,0,0), Size=UDim2.new(0.5,0,1,0), BackgroundTransparency=1,
+        Font=Enum.Font.GothamMedium, Text="—", TextColor3=Library.Theme.Text, TextSize=11, TextXAlignment=Enum.TextXAlignment.Right})
+end
+
+local RowHealth = MakeRow(2, "Health")
+local RowArmor = MakeRow(3, "Armor")
+local RowDist = MakeRow(4, "Distance")
+local RowStatus = MakeRow(5, "Status")
+
+RunService.Heartbeat:Connect(function()
+    if not S.TargetStatsEnabled then StatsFrame.Visible = false; return end
+    local tp = CurrentTarget.Player
+    if not tp or not tp.Character then StatsFrame.Visible = false; return end
+    local hum = tp.Character:FindFirstChildOfClass("Humanoid")
+    local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp then StatsFrame.Visible = false; return end
+    StatsFrame.Visible = true
+    StatsAvatar.Image = "rbxthumb://type=AvatarHeadShot&id="..tp.UserId.."&w=150&h=150"
+    StatsName.Text = hum.DisplayName or tp.Name
+    StatsSub.Text = "@"..tp.Name
+    RowHealth.Text = math.floor(hum.Health).." / "..math.floor(hum.MaxHealth)
+    RowHealth.TextColor3 = hum.Health < hum.MaxHealth * 0.3 and Color3.fromRGB(255,80,80) or Library.Theme.Text
+    local be = tp.Character:FindFirstChild("BodyEffects")
+    local av = be and be:FindFirstChild("Armor")
+    local armor = av and math.floor(av.Value) or 0
+    RowArmor.Text = tostring(armor)
+    RowArmor.TextColor3 = armor > 0 and Color3.fromRGB(100,180,255) or Library.Theme.Text
+    local myChar = LP.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    RowDist.Text = (myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0).." studs"
+    local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+    if myHum then
+        if myHum.Health > hum.Health then RowStatus.Text="Winning"; RowStatus.TextColor3=Color3.fromRGB(80,220,100)
+        elseif myHum.Health < hum.Health then RowStatus.Text="Losing"; RowStatus.TextColor3=Color3.fromRGB(255,80,80)
+        else RowStatus.Text="Even"; RowStatus.TextColor3=Color3.fromRGB(255,210,80) end
+    end
+end)
+
+-- LOCK + CAMLOCK
+local DEFAULT_CAMERA_TYPE = Camera.CameraType
+
+local function applyLock()
+    if Target.Player then return end
+    local closest, best = nil, math.huge
+    local center = Camera.ViewportSize / 2
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health > 0 then
+                local sp, on = Camera:WorldToViewportPoint(hrp.Position)
+                if on then
+                    local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if m < best then best = m; closest = plr end
+                end
+            end
+        end
+    end
+    if not closest then return end
+    Target.Player = closest
+    Target.HRP = closest.Character.HumanoidRootPart
+    CurrentTarget.Player = closest
+    CurrentTarget.HRP = Target.HRP
+    CamlockTarget = Target.HRP
+    S.Camlock = true
+    Camera.CameraType = Enum.CameraType.Scriptable
+    Library:Notify("Locked "..closest.Name)
+end
+
+local function releaseLock()
+    Target.Player = nil; Target.HRP = nil
+    CurrentTarget.Player = nil; CurrentTarget.HRP = nil
+    CamlockTarget = nil
+    S.Camlock = false
+    Camera.CameraType = DEFAULT_CAMERA_TYPE
+    Library:Notify("Unlocked")
+end
+
+local function toggleLock()
+    if not S.Enabled then return end
+    if Target.Player then releaseLock() else applyLock() end
+end
+
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.H then toggleLock() end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local targetHRP = Target.HRP or CamlockTarget
+    if not S.Enabled or not targetHRP or not S.VisualEnabled then
+        if Cylinder then Cylinder:Destroy(); Cylinder = nil end
+        return
+    end
+    if not Cylinder then
+        Cylinder = inew("Part", {Parent=Workspace, Shape=Enum.PartType.Cylinder, Anchored=true, CanCollide=false, Material=Enum.Material.Neon})
+        inew("Highlight", {Parent=Cylinder, FillColor=Color3.fromRGB(255,105,180), OutlineColor=Color3.fromRGB(186,85,211), FillTransparency=0.5, DepthMode=Enum.HighlightDepthMode.AlwaysOnTop})
+    end
+    Cylinder.Size = Vector3.new(0.1, S.VisualSize, S.VisualSize)
+    Cylinder.CFrame = CFrame.new(targetHRP.Position - Vector3.new(0, targetHRP.Size.Y/2 + 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+end)
+
+RunService:BindToRenderStep("CrispyCamlock", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    if S.Camlock and CamlockTarget then
+        if Camera.CameraType ~= Enum.CameraType.Scriptable then Camera.CameraType = Enum.CameraType.Scriptable end
+        local pred = CamlockTarget.Position + CamlockTarget.Velocity * S.CamPred + Vector3.new(0, S.CamJump, 0)
+        local alpha = 1 - math.exp(-dt / math.max(S.CamSmooth, 0.001))
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, pred), alpha)
+    elseif Camera.CameraType == Enum.CameraType.Scriptable and not S.Camlock then
+        Camera.CameraType = DEFAULT_CAMERA_TYPE
+    end
+end)
+
+-- HOOKS
+local oldnc
+oldnc = hookmetamethod(game, "__namecall", newcclosure(function(self_, ...)
+    if checkcaller() then return oldnc(self_, ...) end
+    local method = getnamecallmethod()
+    local args = {...}
+    local activeHRP = Target.HRP or CamlockTarget
+    if S.Enabled and activeHRP and Target.Player then
+        local hitPart = GetTargetPart(Target.Player)
+        if method == "Raycast" and self_ == Workspace and #args >= 3 and hitPart then
+            local pred = hitPart.Position + hitPart.Velocity * GetDynamicPrediction(hitPart) + Vector3.new(0, S.JumpOffset, 0)
+            local dir = pred - args[1]
+            args[2] = dir.Unit * 1000
+            return oldnc(self_, table.unpack(args))
+        end
+        if string.find(method, "FindPartOnRay", 1, true) and typeof(args[1]) == "Ray" and hitPart then
+            local pred = hitPart.Position + hitPart.Velocity * GetDynamicPrediction(hitPart) + Vector3.new(0, S.JumpOffset, 0)
+            local dir = pred - args[1].Origin
+            args[1] = Ray.new(args[1].Origin, dir.Unit * 1000)
+            return oldnc(self_, table.unpack(args))
+        end
+    end
+    return oldnc(self_, ...)
+end))
+
+local oldidx
+oldidx = hookmetamethod(game, "__index", newcclosure(function(self_, key)
+    if checkcaller() then return oldidx(self_, key) end
+    local activeHRP = Target.HRP or CamlockTarget
+    if S.Enabled and S.Silent and self_ == Mouse and activeHRP and Target.Player then
+        if key == "Hit" then
+            local part = GetTargetPart(Target.Player) or activeHRP
+            return CFrame.new(part.Position + part.Velocity * GetDynamicPrediction(part) + Vector3.new(0, S.JumpOffset, 0))
+        elseif key == "Target" then
+            return activeHRP
+        end
+    end
+    return oldidx(self_, key)
+end))
+
+local function TrackTool(char)
+    char.ChildAdded:Connect(function(c) if c:IsA("Tool") then CurrentTool = c.Name end end)
+    char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then CurrentTool = nil end end)
+end
+if LP.Character then TrackTool(LP.Character) end
+LP.CharacterAdded:Connect(TrackTool)
+
+local Window = Library:CreateWindow({Title = "crispy.lol", Center = true, AutoShow = true})
+local Tabs = {
+    Combat   = Window:AddTab("Combat"),
+    Visual   = Window:AddTab("Visual"),
+    Misc     = Window:AddTab("Misc"),
+    Settings = Window:AddTab("Settings"),
+}
+
+-- COMBAT
+local CombatBox = Tabs.Combat:AddLeftGroupbox("Aim")
+CombatBox:AddToggle("EnableCrispy", {Text="Enable", Default=true, Callback=function(v)
+    S.Enabled = v
+    if not v then Target.Player=nil; releaseLock() end
+end})
+CombatBox:AddInput("PredInput", {Default="0.13", Numeric=true, Text="Prediction", Callback=function(v) S.Prediction=tonumber(v) or 0.13 end})
+CombatBox:AddSlider("JumpOffset", {Text="Jump Offset", Default=0, Min=-5, Max=5, Rounding=2, Callback=function(v) S.JumpOffset=v end})
+CombatBox:AddToggle("AutoSelect", {Text="Auto Select", Default=false, Callback=function(v) S.AutoSelect=v end})
+CombatBox:AddToggle("SilentToggle", {Text="Silent Aim", Default=false, Callback=function(v) S.Silent=v end})
+CombatBox:AddDropdown("HitPartDropdown", {Text="Hit Part", Values=HitParts, Default="Head", Callback=function(v) S.TargetAimBone=v end})
+CombatBox:AddDropdown("SilentBone", {Text="Silent Bone", Values=HitParts, Default="Head", Callback=function(v) S.SilentBone=v end})
+
+local CamBox = Tabs.Combat:AddRightGroupbox("Camlock")
+CamBox:AddToggle("CamlockToggle", {Text="Enable Camlock", Default=false, Callback=function(v)
+    S.Camlock=v
+    if not v then CamlockTarget=nil; Camera.CameraType=DEFAULT_CAMERA_TYPE end
+end})
+CamBox:AddSlider("SmoothSlider", {Text="Smoothness", Default=15, Min=1, Max=30, Rounding=0, Callback=function(v) S.CamSmooth=v/100 end})
+CamBox:AddInput("CamPred", {Default="0.13", Numeric=true, Text="Cam Prediction", Callback=function(v) S.CamPred=tonumber(v) or 0.13 end})
+CamBox:AddSlider("CamJump", {Text="Cam Jump Offset", Default=0, Min=-5, Max=5, Rounding=2, Callback=function(v) S.CamJump=v end})
+CamBox:AddLabel("H key or H button toggles lock + camlock")
+
+local PingBox = Tabs.Combat:AddRightGroupbox("Ping Aim")
+PingBox:AddToggle("PingAimToggle", {Text="Ping-Based Prediction", Default=false, Callback=function(v) S.PingAim=v end})
+PingBox:AddSlider("PingRefSlider", {Text="Reference Ping", Default=50, Min=0, Max=300, Rounding=0, Suffix="ms", Callback=function(v) S.PingRef=v end})
+PingBox:AddSlider("PingMultSlider", {Text="Ping Multiplier", Default=0.002, Min=0, Max=0.02, Rounding=4, Callback=function(v) S.PingMult=v end})
+
+local DistBox = Tabs.Combat:AddRightGroupbox("Distance Aim")
+DistBox:AddToggle("DistAimToggle", {Text="Distance-Based Prediction", Default=false, Callback=function(v) S.DistanceAim=v end})
+DistBox:AddSlider("DistNearSlider", {Text="Near Range", Default=50, Min=0, Max=500, Rounding=0, Suffix=" studs", Callback=function(v) S.DistNear=v end})
+DistBox:AddSlider("DistFarSlider", {Text="Far Range", Default=300, Min=0, Max=1000, Rounding=0, Suffix=" studs", Callback=function(v) S.DistFar=v end})
+DistBox:AddSlider("DistNearMultSlider", {Text="Near Multiplier", Default=0.5, Min=0, Max=3, Rounding=2, Callback=function(v) S.DistNearMult=v end})
+DistBox:AddSlider("DistFarMultSlider", {Text="Far Multiplier", Default=2.0, Min=0, Max=3, Rounding=2, Callback=function(v) S.DistFarMult=v end})
+
+local StrafeBox = Tabs.Combat:AddLeftGroupbox("Target Strafe")
+StrafeBox:AddToggle("StrafeToggle", {Text="Enable Strafe", Default=false, Callback=function(v) S.Strafe=v end})
+StrafeBox:AddSlider("StrafeDistSlider", {Text="Distance", Default=5, Min=1, Max=15, Rounding=1, Callback=function(v) S.StrafeDist=v end})
+StrafeBox:AddSlider("StrafeSpeedSlider", {Text="Speed", Default=6, Min=1, Max=20, Rounding=1, Callback=function(v) S.StrafeSpeed=v end})
+StrafeBox:AddSlider("StrafeHeightSlider", {Text="Height", Default=2, Min=-5, Max=5, Rounding=1, Callback=function(v) S.StrafeHeight=v end})
+StrafeBox:AddToggle("ViewTargetToggle", {Text="View Target", Default=false, Callback=function(v) S.ViewTarget=v end})
+StrafeBox:AddToggle("AutoAirToggle", {Text="Auto Air", Default=false, Callback=function(v) S.AutoAir=v end})
+StrafeBox:AddInput("AutoAirDelayInput", {Default="0.1", Numeric=true, Text="Auto Air Delay", Callback=function(v) S.AutoAirDelay=tonumber(v) or 0.1 end})
+
+-- VISUAL ESP
+local VisualBox = Tabs.Visual:AddLeftGroupbox("ESP")
+VisualBox:AddToggle("ESPMaster", {Text="Master Switch", Default=true, Callback=function(v) ESP.visuals_enabled=v end})
+
+local BoxToggle = VisualBox:AddToggle("ESPBox", {Text="Box", Default=false, Callback=function(v) ESP.box.enabled=v end})
+BoxToggle:AddColorPicker("BoxColor", {Default=ESP.box.color, Title="Box Color", Callback=function(c) ESP.box.color=c end})
+BoxToggle:AddColorPicker("BoxOutline", {Default=ESP.box.outline_color, Title="Outline Color", Callback=function(c) ESP.box.outline_color=c end})
+BoxToggle:AddColorPicker("BoxGradTop", {Default=ESP.box.gradient.top_color, Title="Gradient Top", Callback=function(c) ESP.box.gradient.top_color=c end})
+BoxToggle:AddColorPicker("BoxGradBottom", {Default=ESP.box.gradient.bottom_color, Title="Gradient Bottom", Callback=function(c) ESP.box.gradient.bottom_color=c end})
+VisualBox:AddToggle("BoxFilled", {Text="Box Filled", Default=false, Callback=function(v) ESP.box.filled=v end})
+VisualBox:AddSlider("BoxTransparency", {Text="Box Transparency", Default=0.6, Min=0, Max=1, Rounding=2, Callback=function(v) ESP.box.transparency=v end})
+VisualBox:AddSlider("BoxThickness", {Text="Box Thickness", Default=1.5, Min=0.5, Max=5, Rounding=1, Callback=function(v) ESP.box.thickness=v end})
+VisualBox:AddSlider("BoxGradRotSpeed", {Text="Gradient Rot Speed", Default=9, Min=-20, Max=20, Rounding=1, Callback=function(v) ESP.box.gradient.rotation_speed=v end})
+
+local SkelToggle = VisualBox:AddToggle("ESPSkeleton", {Text="Skeleton", Default=false, Callback=function(v) ESP.skeleton.enabled=v end})
+SkelToggle:AddColorPicker("SkelColor", {Default=ESP.skeleton.color, Title="Skeleton Color", Callback=function(c) ESP.skeleton.color=c end})
+VisualBox:AddSlider("SkelThickness", {Text="Skeleton Thickness", Default=1.2, Min=0.5, Max=5, Rounding=1, Callback=function(v) ESP.skeleton.thickness=v end})
+VisualBox:AddSlider("SkelTransparency", {Text="Skeleton Transparency", Default=0.15, Min=0, Max=1, Rounding=2, Callback=function(v) ESP.skeleton.transparency=v end})
+
+local ChamsToggle = VisualBox:AddToggle("ESPChams", {Text="Chams", Default=false, Callback=function(v) ESP.chams.enabled=v end})
+ChamsToggle:AddColorPicker("ChamsFill", {Default=ESP.chams.fill_color, Title="Chams Fill", Callback=function(c) ESP.chams.fill_color=c end})
+ChamsToggle:AddColorPicker("ChamsOutline", {Default=ESP.chams.outline_color, Title="Chams Outline", Callback=function(c) ESP.chams.outline_color=c end})
+VisualBox:AddSlider("ChamsFillTrans", {Text="Chams Fill Transparency", Default=0.5, Min=0, Max=1, Rounding=2, Callback=function(v) ESP.chams.fill_transparency=v end})
+VisualBox:AddSlider("ChamsOutlineTrans", {Text="Chams Outline Transparency", Default=0, Min=0, Max=1, Rounding=2, Callback=function(v) ESP.chams.outline_transparency=v end})
+
+local HealthToggle = VisualBox:AddToggle("ESPHealth", {Text="Health Bar", Default=false, Callback=function(v) ESP.health_bar.enabled=v end})
+HealthToggle:AddColorPicker("HealthTop", {Default=ESP.health_bar.gradient.top_color, Title="Gradient Top", Callback=function(c) ESP.health_bar.gradient.top_color=c end})
+HealthToggle:AddColorPicker("HealthBottom", {Default=ESP.health_bar.gradient.bottom_color, Title="Gradient Bottom", Callback=function(c) ESP.health_bar.gradient.bottom_color=c end})
+VisualBox:AddSlider("HealthWidth", {Text="Health Bar Width", Default=1, Min=0.5, Max=5, Rounding=1, Callback=function(v) ESP.health_bar.width=v end})
+VisualBox:AddToggle("HealthText", {Text="Health Text", Default=false, Callback=function(v) ESP.health_bar.text.enabled=v end})
+VisualBox:AddToggle("HealthTextNumeric", {Text="Health Text Numeric", Default=false, Callback=function(v) ESP.health_bar.text.show_numeric=v end})
+
+local ArmorToggle = VisualBox:AddToggle("ESPArmor", {Text="Armor Bar", Default=false, Callback=function(v) ESP.armor_bar.enabled=v end})
+ArmorToggle:AddColorPicker("ArmorTop", {Default=ESP.armor_bar.gradient.top_color, Title="Gradient Top", Callback=function(c) ESP.armor_bar.gradient.top_color=c end})
+ArmorToggle:AddColorPicker("ArmorBottom", {Default=ESP.armor_bar.gradient.bottom_color, Title="Gradient Bottom", Callback=function(c) ESP.armor_bar.gradient.bottom_color=c end})
+VisualBox:AddSlider("ArmorWidth", {Text="Armor Bar Width", Default=1, Min=0.5, Max=5, Rounding=1, Callback=function(v) ESP.armor_bar.width=v end})
+VisualBox:AddToggle("ArmorText", {Text="Armor Text", Default=false, Callback=function(v) ESP.armor_bar.text.enabled=v end})
+
+local LabelsBox = Tabs.Visual:AddLeftGroupbox("Labels")
+local NameToggle = LabelsBox:AddToggle("ESPName", {Text="Name", Default=false, Callback=function(v) ESP.labels.name.enabled=v end})
+NameToggle:AddColorPicker("NameColor", {Default=ESP.labels.name.color, Title="Name Color", Callback=function(c) ESP.labels.name.color=c end})
+NameToggle:AddColorPicker("NameOutline", {Default=ESP.labels.name.outline_color, Title="Name Outline", Callback=function(c) ESP.labels.name.outline_color=c end})
+
+local DisplayToggle = LabelsBox:AddToggle("ESPDisplayName", {Text="Display Name", Default=false, Callback=function(v) ESP.labels.display_name.enabled=v end})
+DisplayToggle:AddColorPicker("DisplayColor", {Default=ESP.labels.display_name.color, Title="Display Color", Callback=function(c) ESP.labels.display_name.color=c end})
+DisplayToggle:AddColorPicker("DisplayOutline", {Default=ESP.labels.display_name.outline_color, Title="Display Outline", Callback=function(c) ESP.labels.display_name.outline_color=c end})
+
+local DistToggle = LabelsBox:AddToggle("ESPDistance", {Text="Distance", Default=false, Callback=function(v) ESP.labels.distance.enabled=v end})
+DistToggle:AddColorPicker("DistColor", {Default=ESP.labels.distance.color, Title="Distance Color", Callback=function(c) ESP.labels.distance.color=c end})
+
+local ToolToggle = LabelsBox:AddToggle("ESPTool", {Text="Tool", Default=false, Callback=function(v) ESP.labels.tool.enabled=v end})
+ToolToggle:AddColorPicker("ToolColor", {Default=ESP.labels.tool.color, Title="Tool Color", Callback=function(c) ESP.labels.tool.color=c end})
+
+local FovBox = Tabs.Visual:AddRightGroupbox("FOV Circle")
+local FovToggle = FovBox:AddToggle("ESPFov", {Text="Enable FOV", Default=false, Callback=function(v) ESP.fov.enabled=v end})
+FovToggle:AddColorPicker("FovColor", {Default=ESP.fov.color, Title="FOV Color", Callback=function(c) ESP.fov.color=c end})
+FovToggle:AddColorPicker("FovOutline", {Default=ESP.fov.outline_color, Title="FOV Outline", Callback=function(c) ESP.fov.outline_color=c end})
+FovBox:AddSlider("FovRadius", {Text="FOV Radius", Default=150, Min=10, Max=500, Rounding=0, Callback=function(v) ESP.fov.radius=v end})
+FovBox:AddSlider("FovThickness", {Text="FOV Thickness", Default=1, Min=0.5, Max=5, Rounding=1, Callback=function(v) ESP.fov.thickness=v end})
+FovBox:AddSlider("FovTransparency", {Text="FOV Transparency", Default=0.4, Min=0, Max=1, Rounding=2, Callback=function(v) ESP.fov.transparency=v end})
+FovBox:AddToggle("FovFilled", {Text="FOV Filled", Default=false, Callback=function(v) ESP.fov.filled=v end})
+
+local VisBox = Tabs.Visual:AddRightGroupbox("Misc Visual")
+VisBox:AddToggle("VisualToggle", {Text="Enable Cylinder", Default=true, Callback=function(v) S.VisualEnabled=v end})
+VisBox:AddSlider("VisualSizeSlider", {Text="Cylinder Size", Default=6, Min=2, Max=12, Rounding=1, Callback=function(v) S.VisualSize=v end})
+VisBox:AddToggle("TargetStatsToggle", {Text="Target Stats", Default=true, Callback=function(v) S.TargetStatsEnabled=v end})
+
+local EffectBox = Tabs.Visual:AddRightGroupbox("Effects")
+EffectBox:AddToggle("HitSoundToggle", {Text="Hit Sound", Default=true, Callback=function(v) S.HitSoundEnabled=v end})
+EffectBox:AddDropdown("HitSoundDropdown", {Values={"Bameware","Bell","Bubble","Pick","Pop","Rust","Skeet","Fatality","Bonk","Minecraft"}, Default="Skeet", Callback=function(v) S.SelectedHitSound=v end})
+EffectBox:AddToggle("HitEffectToggle", {Text="Hit Effect", Default=true, Callback=function(v) S.HitEffectEnabled=v end})
+EffectBox:AddDropdown("HitEffectDropdown", {Values={"Cum","Crescent Slash","Confetti","Bubble"}, Default="Crescent Slash", Callback=function(v) S.SelectedHitEffect=v end})
+
+-- MISC
+local MiscBox = Tabs.Misc:AddLeftGroupbox("Misc")
+MiscBox:AddButton({Text="Unload", Func=function() Library:Unload() end})
+MiscBox:AddButton({Text="Toggle Menu", Func=function() Library:Toggle() end})
+
+-- LOCK BUTTON
+local LockGui = inew("ScreenGui", {Name="CrispyLock", Parent=CoreGui, ResetOnSpawn=false})
+local LockBtn = inew("ImageButton", {
+    Parent=LockGui, Size=UDim2.new(0,90,0,90), Position=UDim2.new(0.5,-45,0.5,-45),
+    BackgroundTransparency=0.35, BackgroundColor3=Color3.fromRGB(20,20,20),
+    Image="rbxassetid://105654553225282", Draggable=true, Active=true,
+})
+inew("UICorner", {CornerRadius=UDim.new(0.2,0), Parent=LockBtn})
+LockBtn.MouseButton1Click:Connect(toggleLock)
+
+-- LOOPS
+RunService.RenderStepped:Connect(function(dt)
+    if S.Enabled and S.AutoSelect then
+        local best, closest = math.huge, nil
+        local center = Camera.ViewportSize / 2
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LP and plr.Character then
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hum and hrp and hum.Health > 0 then
+                    local sp, on = Camera:WorldToViewportPoint(hrp.Position)
+                    if on then
+                        local m = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        if m < best then best = m; closest = plr end
+                    end
+                end
+            end
+        end
+        if closest then
+            Target.Player = closest
+            Target.HRP = closest.Character.HumanoidRootPart
+            CurrentTarget.Player = closest
+            CurrentTarget.HRP = Target.HRP
+        end
+    end
+
+    local activeHRP = Target.HRP or CamlockTarget
+
+    if activeHRP and S.Strafe and LP.Character then
+        StrafeAngle = StrafeAngle + dt * S.StrafeSpeed
+        local off = Vector3.new(math.cos(StrafeAngle) * S.StrafeDist, S.StrafeHeight, math.sin(StrafeAngle) * S.StrafeDist)
+        local pos = activeHRP.Position + off
+        local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if S.ViewTarget then
+                Camera.CFrame = CFrame.new(pos, activeHRP.Position)
+            else
+                hrp.CFrame = CFrame.new(pos, activeHRP.Position)
+            end
+        end
+    elseif activeHRP and S.ViewTarget then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, activeHRP.Position)
+    end
+
+    if S.AutoAir and activeHRP and LP.Character and not AirDebounce then
+        local tool = LP.Character:FindFirstChildOfClass("Tool")
+        if tool and activeHRP.Velocity.Y > 15 then
+            AirDebounce = true
+            task.spawn(function()
+                tool:Activate()
+                task.wait(S.AutoAirDelay)
+                AirDebounce = false
+            end)
+        end
+    end
+end)
+
+local lastHealthCache = {}
+RunService.PostSimulation:Connect(function()
+    local tp = CurrentTarget.Player
+    if not S.Enabled or not tp or not tp.Character then return end
+    local hum = tp.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local uid = tp.UserId
+    local last = lastHealthCache[uid] or hum.Health
+    if hum.Health < last then
+        PlayHitSound()
+        if S.HitEffectEnabled then
+            local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then HitEffect(hrp.Position) end
+        end
+    end
+    lastHealthCache[uid] = hum.Health
+end)
+
+Players.PlayerRemoving:Connect(function(p) lastHealthCache[p.UserId] = nil end)
+
+-- CONFIG
+pcall(function()
+    ThemeManager:SetLibrary(Library)
+    SaveManager:SetLibrary(Library)
+    SaveManager:BuildConfigSection(Tabs.Settings)
+    ThemeManager:ApplyToTab(Tabs.Settings)
+    SaveManager:LoadAutoloadConfig()
+end)
+
+Library:Notify("crispy.lol loaded")
